@@ -559,7 +559,7 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 		defer exec(ctx, a.DB, "DELETE FROM rate_limits WHERE key=$1", digest("auth-global"))
 		request(first, "POST", "/api/auth/logout", Object{}, 200)
 		request(first, "GET", "/api/auth/me", nil, 401)
-		request(second, "POST", "/api/billing/run", Object{}, 429)
+		request(second, "POST", "/api/auth/login", Object{"email": input.Email, "password": password}, 429)
 
 		const key = "integration:atomic-rate-window"
 		results := make(chan any, 8)
