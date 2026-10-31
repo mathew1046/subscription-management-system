@@ -5,15 +5,10 @@ import {z} from 'zod';
 import {api, ApiError} from '@/lib/client';
 import {paymentInput, type InvoiceDetail, type Payment} from '@/lib/contracts';
 import {Button, ConfirmDialog, Field, Notice, Panel, Select, Textarea} from '@/components/ui';
-import {ambiguous, compareMoney, errorMessage, methods, SignInRecovery, utcToday} from './helpers';
+import {compareMoney, errorMessage, methods, SignInRecovery, utcToday} from './helpers';
+import {paymentStorageKey, readPaymentIntent, replacePaymentIntent, restorePaymentIntent, withPaymentIntentLock, type PaymentIntent as Intent, type PaymentRecovery} from './payment-intent';
 
 type Payload = z.output<typeof paymentInput>;
-const savedIntent = z.object({
-  version: z.literal(1), user_id: z.string().uuid(),
-  state: z.enum(['review', 'uncertain', 'conflict', 'rejected', 'completed']),
-  payload: paymentInput,
-}).strict();
-type Intent = z.output<typeof savedIntent>;
 type Draft = Pick<Payload, 'amount' | 'method' | 'paid_on' | 'note'>;
 type Props = {
   invoice: InvoiceDetail; userId: string; disabled: boolean;
@@ -29,8 +24,25 @@ function matches(payment: Payment, payload: Payload) {
     && payment.paid_on === payload.paid_on && payment.note === payload.note;
 }
 
-export function ManualPayment({invoice, userId, disabled, beginMutation, endMutation, refresh, onLockChange}: Props) {
-  const storageKey = `brightloop:manual-payment:v1:${userId}:${invoice.id}`;
+function definitelyRejected(cause: unknown): boolean {
+  if (!(cause instanceof ApiError)) return false;
+  // Only known API rejections before commit qualify. Unknown errors (including
+  // intermediary timeouts and malformed responses) retain uncertainty.
+  return (cause.status === 400 && ['VALIDATION', 'OVERPAYMENT'].includes(cause.code))
+    || (cause.status === 401 && cause.code === 'UNAUTHENTICATED')
+    || (cause.status === 403 && ['FORBIDDEN', 'ORIGIN'].includes(cause.code))
+    || (cause.status === 404 && cause.code === 'NOT_FOUND')
+    || (cause.status === 409 && cause.code === 'INVALID_TRANSITION')
+    || (cause.status === 429 && cause.code === 'RATE_LIMIT');
+}
+
+export function ManualPayment(props: Props) {
+  // A different authenticated actor/invoice gets a separate component lifetime.
+  return <ScopedManualPayment key={paymentStorageKey(props.userId, props.invoice.id)} {...props}/>;
+}
+
+function ScopedManualPayment({invoice, userId, disabled, beginMutation, endMutation, refresh, onLockChange}: Props) {
+  const storageKey = paymentStorageKey(userId, invoice.id);
   const [draft, setDraft] = useState<Draft>({amount: '', method: 'bank_transfer', paid_on: utcToday(), note: ''});
   const [intent, setIntent] = useState<Intent | null>(null);
   const [ready, setReady] = useState(false);
@@ -40,70 +52,88 @@ export function ManualPayment({invoice, userId, disabled, beginMutation, endMuta
   const [validation, setValidation] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState(false);
   const [pending, setPending] = useState(false);
-  const inFlight = useRef(false), mounted = useRef(false);
+  const inFlight = useRef(false);
+  const lifetime = useRef({alive: false, blocked: false});
   const intentRef = useRef<Intent | null>(null);
+  const rawRef = useRef<string | null>(null);
+  const renderedRaw = rawRef.current;
 
-  function store(next: Intent): boolean {
-    try {
-      const serialized = JSON.stringify(next);
-      sessionStorage.setItem(storageKey, serialized);
-      if (sessionStorage.getItem(storageKey) !== serialized) throw new Error('Storage did not retain the payment intent.');
-      setStorageError('');
-      return true;
-    } catch {
-      setStorageError('Payment-intent storage is unavailable. No new request can be sent safely. Enable session storage and reload; keep any existing request key and exact payment details.');
-      return false;
+  function adopt(saved: PaymentRecovery) {
+    rawRef.current = saved.raw; intentRef.current = saved.intent; setIntent(saved.intent);
+    if (saved.intent) {
+      const {amount, method, paid_on, note} = saved.intent.payload;
+      setDraft({amount, method, paid_on, note});
     }
-  }
-  function adopt(next: Intent | null) {intentRef.current = next; setIntent(next);}
-  function clear(): boolean {
-    try {
-      sessionStorage.removeItem(storageKey);
-      if (sessionStorage.getItem(storageKey) !== null) throw new Error('Could not clear intent.');
-      setStorageError(''); adopt(null); setFailure(null); setMessage(''); setValidation({});
-      return true;
-    } catch {setStorageError('The saved payment intent could not be cleared. Reload after enabling session storage; do not create a replacement request key.'); return false;}
   }
   useEffect(() => {
-    mounted.current = true;
-    try {
-      const raw = sessionStorage.getItem(storageKey);
-      if (raw !== null) {
-        const parsed = savedIntent.safeParse(JSON.parse(raw));
-        if (!parsed.success || parsed.data.user_id !== userId || parsed.data.payload.invoice_id !== invoice.id) throw new Error('Invalid saved intent.');
-        const saved = parsed.data;
-        intentRef.current = saved; setIntent(saved);
-        setDraft({amount: saved.payload.amount, method: saved.payload.method, paid_on: saved.payload.paid_on, note: saved.payload.note});
-        setMessage(saved.state === 'uncertain' ? 'A previous payment request may have committed. Its exact payload is preserved below. Refresh and reconcile, or deliberately resubmit only this same request.' : saved.state === 'conflict' ? 'This saved request key conflicts with recorded data. An operator must reconcile it; do not replace the key.' : saved.state === 'review' ? 'Your payment review was restored. No request was sent for this saved review.' : saved.state === 'completed' ? 'The API previously confirmed this payment. Refresh the ledger before starting another payment.' : 'A rejected payment was restored with all fields preserved. Review the invoice before revising it.');
-      }
-    } catch {
-      setStorageError('The saved payment intent cannot be read safely. Payment entry is locked. Do not delete or replace an unknown intent; ask an operator to reconcile the invoice and original request key.');
+    const life = {alive: true, blocked: false}; lifetime.current = life;
+    function changed(event: StorageEvent) {
+      if (event.storageArea !== localStorage || (event.key !== storageKey && event.key !== null)) return;
+      life.blocked = true; setDialog(false);
+      setStorageError('Payment recovery changed in another tab. Reload this page to read the current intent. No stale action may overwrite or clear it.');
     }
-    setReady(true);
-    return () => {mounted.current = false;};
-    // This component is mounted for a single authenticated user and invoice.
+    window.addEventListener('storage', changed);
+    void withPaymentIntentLock(storageKey, async () => {
+      if (!life.alive || life.blocked) return;
+      const saved = restorePaymentIntent(userId, invoice.id);
+      if (!life.alive || life.blocked) return;
+      adopt(saved);
+      if (saved.intent) setMessage(saved.intent.state === 'review' ? 'Your never-submitted payment review was restored. No request was sent automatically.' : 'The original payment key and exact fields were restored. Reconcile the server ledger before starting another payment. An absent key does not prove failure; no request is sent automatically.');
+    }, true).catch(cause => {
+      if (life.alive) {life.blocked = true; setStorageError(`Payment recovery is locked: ${errorMessage(cause)} Enable durable local storage and reload; do not delete an unknown intent or replace its key.`);}
+    }).finally(() => {if (life.alive) setReady(true);});
+    return () => {life.alive = false; window.removeEventListener('storage', changed);};
+    // The keyed component owns one actor/invoice, including all async callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
-  useEffect(() => {onLockChange(!ready || Boolean(storageError) || Boolean(intent));}, [ready, storageError, intent, onLockChange]);
+  useEffect(() => {onLockChange(!ready || pending || Boolean(storageError) || Boolean(intent));}, [ready, pending, storageError, intent, onLockChange]);
   useEffect(() => () => onLockChange(false), [onLockChange]);
 
-  // Reconcile only against a backend-returned ledger. Absence is not proof of failure:
-  // the original request could still be in flight, so an uncertain key is never discarded.
-  useEffect(() => {
-    const current = intentRef.current;
-    if (!current || current.state === 'review' || current.state === 'completed') return;
-    const recorded = invoice.payments.find(payment => payment.request_key.toLowerCase() === current.payload.request_key.toLowerCase());
-    if (!recorded) return;
-    if (!matches(recorded, current.payload)) {
-      setFailure(new Error('The ledger contains this request key with different payment details. Do not replace the key or resubmit. An operator must reconcile this conflict.'));
-      return;
+  async function operate(action: (current: Intent | null, save: (next: Intent | null) => void, check: () => void) => Promise<void>) {
+    const life = lifetime.current, expectedRaw = renderedRaw;
+    if (!ready || disabled || storageError || inFlight.current || !life.alive || life.blocked || !beginMutation()) return;
+    inFlight.current = true; setPending(true);
+    try {
+      await withPaymentIntentLock(storageKey, async () => {
+        let raw = expectedRaw;
+        const check = () => {
+          if (!life.alive || life.blocked) throw new Error('This payment view is no longer current. Reload recovery; keep the original request.');
+          if (rawRef.current !== raw) throw new Error('This payment action belongs to an older review. Reload the current recovery before continuing.');
+          readPaymentIntent(userId, invoice.id, raw);
+        };
+        check();
+        const current = readPaymentIntent(userId, invoice.id, raw).intent;
+        const save = (next: Intent | null) => {
+          check();
+          const saved = replacePaymentIntent(userId, invoice.id, raw, next);
+          raw = saved.raw; adopt(saved);
+        };
+        await action(current, save, check);
+      });
+    } catch (cause) {
+      if (life.alive) {life.blocked = true; setDialog(false); setStorageError(`Payment recovery stopped: ${errorMessage(cause)} Reload before continuing; preserve the original key and payment details.`);}
+    } finally {
+      inFlight.current = false; endMutation();
+      if (life.alive) setPending(false);
     }
-    const completed: Intent = {...current, state: 'completed'};
-    adopt(completed); store(completed);
-    setFailure(null); setMessage('Payment found in the server ledger with this exact request key and matching details. It has been recorded; do not submit it again.');
-    // Re-run only for a new server invoice snapshot or a restored intent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoice, ready]);
+  }
+
+  async function latest(check: () => void): Promise<InvoiceDetail> {
+    const value = await refresh();
+    check();
+    if (!value || value.id !== invoice.id) throw new Error('A current server ledger could not be read. No saved payment can be released or replaced.');
+    return value;
+  }
+
+  function reconcileSnapshot(current: Intent, ledger: InvoiceDetail, save: (next: Intent) => void): 'completed' | 'conflict' | null {
+    const found = ledger.payments.find(payment => payment.request_key.toLowerCase() === current.payload.request_key.toLowerCase());
+    if (!found) return null; // Absence never disproves an earlier in-flight write.
+    const state = matches(found, current.payload) ? 'completed' : 'conflict';
+    save({...current, state}); setDialog(false);
+    setFailure(null);
+    setMessage(state === 'completed' ? 'The current server ledger contains this exact key and matching payment details. Do not submit it again.' : 'The server ledger contains this key with different details. Keep the original intent for operator reconciliation; do not replace its key.');
+    return state;
+  }
 
   function review(event: FormEvent) {
     event.preventDefault();
@@ -118,58 +148,69 @@ export function ManualPayment({invoice, userId, disabled, beginMutation, endMuta
     if (invoice.status !== 'Confirmed') errors.form = 'Only confirmed invoices with an outstanding balance accept new payments.';
     setValidation(errors);
     if (!parsed.success || Object.keys(errors).length) return;
-    let key: string;
-    try {key = crypto.randomUUID();} catch {setFailure(new Error('A secure payment request key could not be generated. Use a secure browser context and try again.')); return;}
-    const next: Intent = {version: 1, user_id: userId, state: 'review', payload: {...parsed.data, request_key: key}};
-    if (!store(next)) return;
-    adopt(next); setDialog(true);
+    void operate(async (current, save) => {
+      if (current) throw new Error('A preserved payment already exists. Reconcile it before starting another.');
+      save({version: 1, user_id: userId, state: 'review', payload: {...parsed.data, request_key: crypto.randomUUID()}});
+      setDialog(true);
+    });
   }
 
   async function submit() {
-    const current = intentRef.current;
-    if (!current || (current.state !== 'review' && current.state !== 'uncertain') || disabled || storageError || inFlight.current) return;
-    if (failure instanceof ApiError && failure.code === 'IDEMPOTENCY_MISMATCH') return;
-    const existing = invoice.payments.find(payment => payment.request_key.toLowerCase() === current.payload.request_key.toLowerCase());
-    if (existing) {setDialog(false); setFailure(new Error('This request key is already in the ledger. Reconcile the saved payment before submitting anything else.')); return;}
-    if (current.state === 'review' && (invoice.status !== 'Confirmed' || compareMoney(current.payload.amount, invoice.balance) > 0)) {
-      setDialog(false); setFailure(new Error('This payment no longer fits the latest confirmed balance. Return to editing; the saved review has not been submitted.')); return;
-    }
-    if (!beginMutation()) return;
-    inFlight.current = true; setPending(true); setFailure(null); setMessage('');
-    // Save BEFORE the write. A reload at any later point must assume it committed.
-    const attempted: Intent = {...current, state: 'uncertain'};
-    if (!store(attempted)) {inFlight.current = false; setPending(false); setDialog(false); endMutation(); return;}
-    adopt(attempted);
-    const wasUncertain = current.state === 'uncertain';
-    try {
-      const payment = await api.recordPayment(current.payload);
-      if (!mounted.current) return;
-      if (!matches(payment, current.payload)) throw new Error('The payment response did not match the preserved intent. Reconcile the ledger before doing anything else.');
-      const completed: Intent = {...current, state: 'completed'};
-      adopt(completed); store(completed);
-      setDialog(false);
-      setMessage('Payment recorded by the API. Refreshing the invoice balance, payment ledger and saved status.');
-      await refresh();
-    } catch (cause) {
-      if (!mounted.current) return;
-      // A definite rejection of an exact retry cannot disprove an earlier ambiguous write.
-      // Key mismatches always require reconciliation, even on the first attempt.
-      const keyMismatch = cause instanceof ApiError && cause.code === 'IDEMPOTENCY_MISMATCH';
-      const uncertain = wasUncertain || ambiguous(cause) || keyMismatch;
-      const next: Intent = {...current, state: keyMismatch ? 'conflict' : uncertain ? 'uncertain' : 'rejected'};
-      adopt(next); store(next); setDialog(false); setFailure(cause);
-      setMessage(keyMismatch ? 'Request-key conflict. Keep the key and every field unchanged for operator reconciliation. Do not retry or create a replacement intent.' : uncertain ? 'Outcome uncertain. Keep this request key and every field unchanged. A refresh may find the payment; if it does not, only an exact resubmission is safe. There is no automatic retry.' : 'The API rejected this request. All fields are preserved. Refresh the balance before deliberately revising the rejected payment.');
-      await refresh();
-    } finally {
-      inFlight.current = false; endMutation();
-      if (mounted.current) setPending(false);
-    }
+    await operate(async (current, save, check) => {
+      if (!current || (current.state !== 'review' && current.state !== 'uncertain')) return;
+      const ledger = await latest(check);
+      if (reconcileSnapshot(current, ledger, save)) return;
+      if (current.state === 'review' && (ledger.status !== 'Confirmed' || compareMoney(current.payload.amount, ledger.balance) > 0)) {
+        setDialog(false); setFailure(new Error('This never-submitted review no longer fits the current confirmed balance. Return to editing.')); return;
+      }
+      setFailure(null); setMessage('');
+      // Hold the lock and verify durable uncertainty BEFORE the POST. If this
+      // view disappears, leave that original request intact for exact recovery.
+      save({...current, state: 'uncertain'});
+      let payment: Payment;
+      try {payment = await api.recordPayment(current.payload);}
+      catch (cause) {
+        check();
+        const keyMismatch = cause instanceof ApiError && cause.code === 'IDEMPOTENCY_MISMATCH';
+        const uncertain = current.state === 'uncertain' || !definitelyRejected(cause) || keyMismatch;
+        save({...current, state: keyMismatch ? 'conflict' : uncertain ? 'uncertain' : 'rejected'});
+        setDialog(false); setFailure(cause);
+        setMessage(keyMismatch ? 'Request-key conflict. Preserve every field for operator reconciliation.' : uncertain ? 'Outcome uncertain. Only this unchanged payload and original key may be resubmitted deliberately. No automatic retry occurs.' : 'The API definitely rejected this first attempt. Refresh the ledger before deliberately revising it.');
+        const fresh = await latest(check);
+        reconcileSnapshot(intentRef.current!, fresh, save);
+        return;
+      }
+      check();
+      if (!matches(payment, current.payload)) throw new Error('The payment response does not match the preserved intent. Reconcile its original key; do not replace it.');
+      save({...current, state: 'completed'}); setDialog(false);
+      setMessage('Payment confirmed by the API. Read the current server ledger before finishing this intent.');
+      const fresh = await latest(check);
+      reconcileSnapshot(intentRef.current!, fresh, save);
+    });
   }
 
   async function reconcile() {
-    if (disabled || inFlight.current) return;
-    setMessage('Refreshing the server ledger. An absent request key does not by itself prove that an earlier request failed.');
-    await refresh();
+    await operate(async (current, save, check) => {
+      if (!current) return;
+      const ledger = await latest(check);
+      if (!reconcileSnapshot(current, ledger, save)) setMessage('This server ledger does not contain the original key. That is not proof of failure. Preserve the intent; an uncertain payment may only be resubmitted with the exact original fields and key.');
+    });
+  }
+
+  async function clear() {
+    await operate(async (current, save, check) => {
+      if (!current || current.state === 'uncertain' || current.state === 'conflict') return;
+      const ledger = await latest(check);
+      const state = reconcileSnapshot(current, ledger, save);
+      if (state === 'conflict' || (current.state === 'completed' && state !== 'completed')) {
+        setMessage('The saved payment cannot be released without matching current server ledger evidence. Preserve its key and reconcile again.'); return;
+      }
+      if (current.state !== 'completed' && state === 'completed') return;
+      // Only never-submitted review, definite first-attempt rejection, or a
+      // completed request matched by the just-read ledger can be released.
+      save(null); setDialog(false); setFailure(null); setMessage(''); setValidation({});
+      if (current.state === 'completed') setDraft({amount: '', method: 'bank_transfer', paid_on: utcToday(), note: ''});
+    });
   }
   const locked = disabled || pending || !ready || Boolean(storageError);
   const editable = !intent;
@@ -203,13 +244,13 @@ export function ManualPayment({invoice, userId, disabled, beginMutation, endMuta
     {intent && <section className="form-section" aria-label="Preserved payment intent">
       <h3>{intent.state === 'conflict' ? 'Preserved request — key conflict' : intent.state === 'uncertain' ? 'Preserved request — outcome uncertain' : intent.state === 'completed' ? 'Recorded payment request' : intent.state === 'rejected' ? 'Rejected payment request' : 'Review payment request'}</h3>
       <dl className="detail-list"><div><dt>Request key</dt><dd>{intent.payload.request_key}</dd></div><div><dt>Amount</dt><dd>{invoice.currency} {intent.payload.amount}</dd></div><div><dt>Method</dt><dd>{methods[intent.payload.method]}</dd></div><div><dt>Paid on (UTC)</dt><dd>{intent.payload.paid_on}</dd></div><div><dt>Exact note</dt><dd style={{whiteSpace: 'pre-wrap'}}>{intent.payload.note || '(empty)'}</dd></div></dl>
-      <p><small>The request key and these exact fields are saved in this tab’s session storage, scoped to your user and invoice. Do not close this tab while the outcome is uncertain. No session or password token is stored.</small></p>
+      <p><small>The original key and exact fields are saved in this browser profile’s local storage, scoped to your user and invoice, including after tab closure. Tabs coordinate through Web Locks. This cannot coordinate another browser, profile or device, or survive cleared browser data. Do not record this same receipt elsewhere while recovery is unresolved. No session or password token is stored.</small></p>
       <div className="actions">
         {(intent.state === 'review' || intent.state === 'uncertain') && <Button disabled={locked || Boolean(recorded) || keyConflict} onClick={() => setDialog(true)}>{intent.state === 'uncertain' ? 'Review exact resubmission' : 'Continue payment review'}</Button>}
         <Button variant="secondary" disabled={locked} onClick={() => void reconcile()}>Refresh and reconcile ledger</Button>
-        {intent.state === 'review' && <Button variant="secondary" disabled={locked} onClick={() => {if (clear()) setDialog(false);}}>Return to editing</Button>}
-        {intent.state === 'rejected' && <Button variant="secondary" disabled={locked} onClick={() => clear()}>Revise rejected payment</Button>}
-        {intent.state === 'completed' && recorded && <Button variant="secondary" disabled={locked} onClick={() => {if (clear()) setDraft({amount: '', method: 'bank_transfer', paid_on: utcToday(), note: ''});}}>Finish recorded payment</Button>}
+        {intent.state === 'review' && <Button variant="secondary" disabled={locked} onClick={() => void clear()}>Return to editing</Button>}
+        {intent.state === 'rejected' && <Button variant="secondary" disabled={locked} onClick={() => void clear()}>Revise rejected payment</Button>}
+        {intent.state === 'completed' && recorded && <Button variant="secondary" disabled={locked} onClick={() => void clear()}>Finish recorded payment</Button>}
       </div>
       {intent.state === 'completed' && !recorded && <Notice>The API confirmed this payment, but this invoice snapshot has not yet reconciled it. Refresh before starting a new payment.</Notice>}
       {intent.state === 'uncertain' && <Notice error>Do not create a replacement request key, change the amount or enter the same payment in another tab. Only this exact request can be resubmitted safely.</Notice>}
