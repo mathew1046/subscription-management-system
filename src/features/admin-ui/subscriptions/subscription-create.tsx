@@ -39,7 +39,9 @@ export function SubscriptionCreate({templateId}: {templateId?: string}) {
   const [created, setCreated] = useState<SubscriptionDetail | null>(null);
   const actorId = session.user?.id ?? '';
   const activeActor = useRef(actorId);
-  activeActor.current = actorId;
+  useEffect(() => {
+    activeActor.current = actorId;
+  }, [actorId]);
 
   function restoreRecovery(userId: string, preserveUnsaved = false) {
     const saved = readDraftIntent(userId);
