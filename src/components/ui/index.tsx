@@ -67,7 +67,15 @@ function DialogFrame({ open, onOpenChange, title, description, children, pending
             if (cancel && !cancel.disabled) cancel.focus(); else content.current?.focus();
           }
         }}
-        onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus(); }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          if (returnFocus.current?.isConnected) {
+            returnFocus.current.focus();
+            if (document.activeElement === returnFocus.current) return;
+          }
+          const heading = document.querySelector<HTMLElement>('h1.page-title');
+          if (heading) { heading.tabIndex = -1; heading.focus(); }
+        }}
         onEscapeKeyDown={event => { if (pending) event.preventDefault(); }}
         onInteractOutside={event => { if (pending) event.preventDefault(); }}
       >

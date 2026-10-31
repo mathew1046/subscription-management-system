@@ -129,11 +129,11 @@ export function SubscriptionDetailScreen({id}: {id: string}) {
   const started = subscription.start_date <= today;
   const active = subscription.status === 'Active';
   const validQuote = subscription.quote_valid_until >= today && unexpired;
-  const canPause = active && !subscription.paused && plan.allow_pause && started && unexpired;
+  const billingDue = active && !subscription.paused && subscription.next_billing_date <= today && subscription.next_billing_date < subscription.end_date;
+  const canPause = active && !subscription.paused && plan.allow_pause && started && unexpired && !billingDue;
   const canResume = active && subscription.paused && unexpired;
   const canRenew = active && plan.allow_renew && started && unexpired;
-  const canClose = active && plan.allow_close;
-  const billingDue = active && !subscription.paused && subscription.next_billing_date <= today && subscription.next_billing_date < subscription.end_date;
+  const canClose = active && plan.allow_close && !billingDue;
   const disabled = pending || loading || needsRefresh || Boolean(loadError);
 
   return <>
