@@ -185,7 +185,8 @@ function SubscriptionDetailScreen({ id }: { id: string }) {
         </dl></section>
       </div>
       <section className="form-section"><h2>Quoted charges</h2><p>Saved prices and taxes, calculated by the server before invoice-time discounts. The tax-free plan base fee is added to product lines. Each final shortened billing period is charged in full; no proration or automatic refunds apply. Issued invoices are authoritative for amounts due.</p>
-        <div className="table-wrap" role="region" aria-label="Saved quotation lines — scroll horizontally to see all columns" tabIndex={0}><table>
+        <p className="field-help" id="quotation-scroll-help">Scroll horizontally to see every quotation column on smaller screens.</p>
+        <div className="table-wrap" role="region" aria-label="Saved quotation lines" aria-describedby="quotation-scroll-help" tabIndex={0}><table>
           <caption className="sr-only">Saved product lines in {record.currency}</caption><thead><tr><th scope="col">Description</th><th scope="col">Quantity</th><th scope="col">Unit price</th><th scope="col">Subtotal</th><th scope="col">Tax rate</th><th scope="col">Tax</th><th scope="col">Total</th></tr></thead>
           <tbody>{record.lines.map(line => <tr key={line.id}><th scope="row">{line.description}</th><td>{line.quantity}</td><td>{record.currency} {line.unit_price}</td><td>{record.currency} {line.subtotal}</td><td>{line.tax_rate}%</td><td>{record.currency} {line.tax_amount}</td><td>{record.currency} {line.total}</td></tr>)}</tbody>
         </table></div>

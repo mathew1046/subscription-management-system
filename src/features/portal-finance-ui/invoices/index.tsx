@@ -121,7 +121,7 @@ function InvoiceScreen({id}: {id: string}) {
       const result = await api.invoiceAction(id, currentAction);
       if (!mounted.current) return;
       if (!result.ok) throw new Error('The server did not confirm this action. Refresh the invoice before continuing.');
-      setMessage(currentAction === 'send' ? emailMessage(result.email) : currentAction === 'confirm' ? 'Invoice confirmation saved. The refreshed record below is authoritative.' : 'Invoice cancellation saved.');
+      setMessage(currentAction === 'send' ? 'Invoice email queue request accepted. The current queue and SMTP status are shown below; inbox delivery is not guaranteed.' : currentAction === 'confirm' ? 'Invoice confirmation saved. The refreshed record below is authoritative.' : 'Invoice cancellation saved.');
     } catch (cause) {
       if (!mounted.current) return;
       setActionFailure(cause);
