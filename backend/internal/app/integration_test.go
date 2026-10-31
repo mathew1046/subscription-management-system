@@ -222,6 +222,7 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 	if _, exists := report["payments"]; exists {
 		t.Fatal("default report shape changed without opting into the payment ledger")
 	}
+	request(admin, "PUT", "/api/customers/"+customerID, Object{"name": "Renamed customer", "email": registration["email"], "address": ""}, 200)
 	for page := 1; page <= 3; page++ {
 		ledger := request(staff, "GET", fmt.Sprintf("/api/reports?include_payments=true&page_size=1&page=%d&customer_id=%s", page, customerID), nil, 200)["payments"].(map[string]any)
 		expected := 1
@@ -233,7 +234,7 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 		}
 		for _, item := range ledger["items"].([]any) {
 			p := item.(map[string]any)
-			if p["customer_id"] != customerID || p["invoice_number"] != invoice["number"] || p["currency"] != "INR" {
+			if p["customer_id"] != customerID || p["customer_name"] != "Customer" || p["invoice_number"] != invoice["number"] || p["currency"] != "INR" {
 				t.Fatalf("payment ledger lost invoice/customer context: %v", p)
 			}
 		}
