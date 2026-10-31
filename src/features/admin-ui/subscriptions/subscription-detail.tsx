@@ -92,7 +92,6 @@ export function SubscriptionDetailScreen({id}: {id: string}) {
         setBillingResult(null);
         const result = await api.runBilling();
         setBillingResult(result);
-        setSuccess('The global due-billing batch completed. Review its counts and the refreshed subscription before taking another action.');
       } else {
         const result = await api.transition(id, action === 'renew' ? {action, end_date: renewalEnd} : {action});
         setSubscription(previous => previous ? {...previous, ...result} : previous);
