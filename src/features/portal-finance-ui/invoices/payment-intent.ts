@@ -72,18 +72,25 @@ export function restorePaymentIntent(userId: string, invoiceId: string): Payment
   if (durable && !samePaymentIntent(durable, previous)) {
     throw new Error('Different payment intents exist in durable and legacy tab storage. Both are preserved. An operator must reconcile both original keys before payment entry can continue.');
   }
+  // Do not resurrect a released request, but an old tab may have submitted it
+  // after an unsubmitted/rejected release. Preserve both records if that outcome
+  // is unknown; only a reconciled completion can settle an older uncertain copy.
+  if (record?.released && (previous.state === 'conflict' || (previous.state !== 'review' && durable?.state !== 'completed'))) {
+    throw new Error('Legacy payment data needs reconciliation with the released request. Both originals are preserved; an operator must verify the original key before payment entry can continue.');
+  }
   // A legacy tab may have an older state for this same immutable request. Never
   // downgrade it to a never-submitted review or a definitely rejected payment.
   const next: PaymentIntent = durable && durable.state !== previous.state
     ? {...durable, state: durable.state === 'conflict' || previous.state === 'conflict' ? 'conflict' : 'uncertain'}
     : durable ?? previous;
-  const serialized = serialize(next);
+  const serialized = serialize(record?.released ? durable : next, record?.released ?? false);
   if (localStorage.getItem(key) !== raw || sessionStorage.getItem(key) !== legacy) throw new Error('Payment recovery changed during migration. Reload without deleting either original.');
   localStorage.setItem(key, serialized);
   if (localStorage.getItem(key) !== serialized) throw new Error('Durable payment recovery could not be verified. Legacy data has been preserved.');
   sessionStorage.removeItem(key);
   if (sessionStorage.getItem(key) !== null) throw new Error('Legacy payment recovery could not be released safely. No payment request was sent.');
-  return {raw: serialized, intent: parseRecord(serialized, userId, invoiceId).intent};
+  const migrated = parseRecord(serialized, userId, invoiceId);
+  return {raw: serialized, intent: migrated.released ? null : migrated.intent};
 }
 
 export function readPaymentIntent(userId: string, invoiceId: string, expectedRaw: string | null): PaymentRecovery {
