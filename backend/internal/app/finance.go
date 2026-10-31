@@ -208,7 +208,7 @@ func (a *App) report(w http.ResponseWriter, r *http.Request) any {
 		result["to"] = to
 		if includePayments {
 			// Match collected's payment-date/customer/currency filters, not invoice issue dates.
-			result["payments"] = paged(rows(ctx, tx, `SELECT p.*,i.number AS invoice_number,i.customer_id,i.currency
+			result["payments"] = paged(rows(ctx, tx, `SELECT p.*,i.number AS invoice_number,i.customer_id,i.customer_snapshot->>'name' AS customer_name,i.currency
 				FROM payments p JOIN invoices i ON i.id=p.invoice_id
 				WHERE p.paid_on BETWEEN $1::date AND $2::date AND ($3='' OR i.customer_id::text=$3) AND i.currency=$4
 				ORDER BY p.paid_on DESC,p.id LIMIT $5 OFFSET $6`, from, to, customer, a.Currency, size+1, (page-1)*size), page, size)
