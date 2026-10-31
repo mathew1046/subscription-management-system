@@ -30,6 +30,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
   const [uncertain,setUncertain]=useState(false);
   const [archiveRecord,setArchiveRecord]=useState<T|null>(null);
   const [archiveError,setArchiveError]=useState('');
+  const [archiveNotice,setArchiveNotice]=useState('');
   const locked=useRef(false);
   const headingRef=useRef<HTMLHeadingElement>(null);
   const pageHeadingRef=useRef<HTMLHeadingElement>(null);
@@ -70,12 +71,20 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
   }
   async function confirmArchive() {
     if(!canManage || !archiveRecord || !archive || locked.current) return;
-    locked.current=true;setPending(true);setArchiveError('');setSuccess('');
+    locked.current=true;setPending(true);setArchiveError('');setArchiveNotice('');setSuccess('');
     try {
       await archive(archiveRecord);
       setSuccess(`${archiveRecord.name} archived. Existing subscription snapshots are unchanged.`);
       setArchiveRecord(null);setRefreshKey(key=>key+1);
-    } catch(error) {setArchiveError(errorMessage(error))}
+    } catch(error) {
+      const message=errorMessage(error);
+      if(error instanceof ApiError && (error.code==='UNAVAILABLE' || error.code==='TIMEOUT' || error.status>=500)) {
+        setArchiveRecord(null);
+        setArchiveError('');
+        setArchiveNotice(`The archive result is unknown. ${message} Check the refreshed product state before taking another action.`);
+        setRefreshKey(key=>key+1);
+      } else setArchiveError(message);
+    }
     finally {locked.current=false;setPending(false)}
   }
   return <>
@@ -85,6 +94,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
     </div>
     {!canManage && <p className="text-muted">Read-only configuration. An administrator manages these records.</p>}
     {success && <Notice>{success}</Notice>}
+    {archiveNotice && <Notice error>{archiveNotice}</Notice>}
     {uncertain && <Notice error>The save result is unknown. This editor is locked to prevent duplicate writes. Check the refreshed record list before reloading this page to start another save.</Notice>}
     {editor && <Panel title={`${editor.record ? 'Edit' : 'New'} ${singular}`}>
       <h3 ref={headingRef} tabIndex={-1} className="text-muted">{editor.record ? editor.record.name : `Enter ${singular} details`}</h3>

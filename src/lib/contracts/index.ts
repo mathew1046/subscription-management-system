@@ -17,7 +17,7 @@ export const discountInput = z.object({name,kind:z.enum(['fixed','percentage']),
 export const customerInput = z.object({name,email,address:z.string().max(2000).default(''),user_id:id.nullable().optional()}).strict();
 export const lineInput = z.object({product_id:id,variant_id:id.nullable().default(null),quantity:z.number().int().min(1).max(100000),tax_id:id.nullable().default(null)}).strict();
 export const templateInput = z.object({name,plan_id:id,valid_days:z.number().int().min(1).max(365),lines:z.array(lineInput).min(1).max(100)}).strict();
-export const subscriptionInput = z.object({customer_id:id,plan_id:id,start_date:date,end_date:date,quote_valid_until:date,payment_terms_days:z.number().int().min(0).max(365).default(14),lines:z.array(lineInput).min(1).max(100)}).strict().refine(v=>v.end_date>v.start_date,'End date must follow start date');
+export const subscriptionInput = z.object({request_key:id.optional(),customer_id:id,plan_id:id,start_date:date,end_date:date,quote_valid_until:date,payment_terms_days:z.number().int().min(0).max(365).default(14),lines:z.array(lineInput).min(1).max(100)}).strict().refine(v=>v.end_date>v.start_date,'End date must follow start date');
 export const lifecycleInput = z.object({action:z.enum(['quote','confirm','activate','pause','resume','close','renew']),end_date:date.optional()}).strict();
 export const paymentInput = z.object({invoice_id:id,amount:money.refine(v=>Number(v)>0),method:z.enum(['bank_transfer','cash','card','upi','other']),paid_on:date,note:z.string().max(2000).default(''),request_key:id}).strict();
 export const schemas = {products:productInput,variants:variantInput,plans:planInput,taxes:taxInput,discounts:discountInput,customers:customerInput,'quotation-templates':templateInput};
