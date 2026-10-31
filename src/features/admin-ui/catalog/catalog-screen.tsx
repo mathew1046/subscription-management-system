@@ -39,7 +39,7 @@ export function CatalogScreen({resource}:{resource:Resource|'staff'}) {
         {label:'Availability',render:record=><>{record.available_from} – {record.available_until || 'No end date'}</>},
         {label:'Policy',render:record=><details><summary>View policy</summary><dl className="detail-list"><dt>Auto-close at end</dt><dd>{record.auto_close ? 'Yes' : 'No'}</dd><dt>Early closure</dt><dd>{record.allow_close ? 'Allowed' : 'Not allowed'}</dd><dt>Pause</dt><dd>{record.allow_pause ? 'Allowed' : 'Not allowed'}</dd><dt>Renewal</dt><dd>{record.allow_renew ? 'Allowed' : 'Not allowed'}</dd></dl></details>},
       ]}/>;
-    case 'customers':return <CatalogWorkspace key={resource} title="Customers" singular="customer" description="Maintain billing contact details without changing portal account links." canManage={canManage}
+    case 'customers':return <CatalogWorkspace key={resource} title="Customers" singular="customer" description="Maintain billing contact details without changing portal account links." canManage
       load={page=>api.list('customers',{page})} create={input=>api.create('customers',input)} update={(id,input)=>api.update('customers',id,input)} Editor={CustomerEditor}
       columns={[{label:'Email',render:record=>record.email},{label:'Billing address',render:record=>record.address || 'Not provided'}]}/>;
     case 'taxes':return <CatalogWorkspace key={resource} title="Taxes" singular="tax" description="Configure percentage rates available to new subscription lines." canManage={canManage}

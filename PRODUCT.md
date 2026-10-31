@@ -18,7 +18,7 @@ Operational tables, structured editors, lifecycle actions and financial records.
 Next.js/React and TypeScript presentation consumes the existing typed Go API. PostgreSQL and Go remain authoritative for authorization, transitions, discounts, billing and exact money. No external business services, client-side financial calculations or invented production data. Local demo records are labelled DEMO and email is captured locally by Mailpit.
 
 ## Brand Commitments
-Retain the name Brightloop. The user requested a complete visual redesign that is minimal, professional, clean and responsive, with a service logo. Exact visual direction is awaiting selection.
+Retain the name Brightloop. The user requested a complete visual redesign that is minimal, professional, clean and responsive, with a service logo. The user selected Paper & ink: a light navigation rail, near-white workspace, charcoal typography and restrained green accents.
 
 ## Evidence on Hand
 Existing working backend APIs, shared contracts, role specifications and labelled local demo records. No customer testimonials or production-readiness claims are supplied.

@@ -91,7 +91,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
         </div> : <nav aria-label="Workspace navigation">
           {user.role === 'customer' ? <div className="nav-group"><p className="nav-heading">Your account</p>{navLinks(customerNavigation)}</div> : <>
             <div className="nav-group"><p className="nav-heading">Workspace</p>{navLinks(operations)}</div>
-            <div className="nav-group"><p className="nav-heading">{user.role === 'staff' ? 'Configuration · read only' : 'Configuration'}</p>{navLinks(configuration)}</div>
+            <div className="nav-group"><p className="nav-heading">{user.role === 'staff' ? 'Configuration · read only' : 'Configuration'}</p>{navLinks(configuration.filter(item => user.role === 'admin' || item.href !== '/admin/quotation-templates'))}</div>
             {user.role === 'admin' && <div className="nav-group"><p className="nav-heading">Administration</p>{navLinks([{ label: 'Staff', href: '/admin/staff', icon: UserRoundCog }])}</div>}
           </>}
         </nav>}
