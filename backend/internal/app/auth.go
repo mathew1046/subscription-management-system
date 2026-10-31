@@ -6,12 +6,15 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/argon2"
 	"net/http"
+	"net/mail"
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/argon2"
 )
 
 const sessionCookie = "brightloop_session"
@@ -24,7 +27,7 @@ func validatePassword(s string) {
 		lower = lower || unicode.IsLower(c)
 		special = special || (!unicode.IsLetter(c) && !unicode.IsDigit(c) && !unicode.IsSpace(c))
 	}
-	require(len([]rune(s)) >= 9 && len(s) <= 128 && upper && lower && special, 400, "PASSWORD_POLICY", "Password needs at least 9 characters, uppercase, lowercase and a special character.")
+	require(utf8.ValidString(s) && len([]rune(s)) >= 9 && len(s) <= 128 && upper && lower && special, 400, "PASSWORD_POLICY", "Password needs at least 9 characters, uppercase, lowercase and a special character.")
 }
 func (a *App) hashPassword(ctx context.Context, password string) string {
 	select {
@@ -39,7 +42,11 @@ func (a *App) hashPassword(ctx context.Context, password string) string {
 }
 func (a *App) verify(ctx context.Context, password, hash string) bool {
 	parts := strings.Split(hash, "$")
-	if len(parts) != 3 || parts[0] != "argon2id" {
+	if len(parts) != 3 || parts[0] != "argon2id" || len(parts[1]) != 32 || len(parts[2]) != 64 {
+		return false
+	}
+	expected, e := hex.DecodeString(parts[2])
+	if e != nil {
 		return false
 	}
 	select {
@@ -49,8 +56,7 @@ func (a *App) verify(ctx context.Context, password, hash string) bool {
 	}
 	defer func() { <-a.hashSlots }()
 	actual := argon2.IDKey([]byte(password), []byte(parts[1]), 2, 64*1024, 2, 32)
-	expected, e := hex.DecodeString(parts[2])
-	return e == nil && subtle.ConstantTimeCompare(actual, expected) == 1
+	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 func (a *App) rate(ctx context.Context, key string, limit int) {
 	r := one(ctx, a.DB, `INSERT INTO rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.hits+1 END,expires_at=CASE WHEN rate_limits.expires_at<now() THEN now()+interval '15 minutes' ELSE rate_limits.expires_at END RETURNING hits`, digest(key))
@@ -58,7 +64,7 @@ func (a *App) rate(ctx context.Context, key string, limit int) {
 }
 func (a *App) user(r *http.Request) User {
 	cookie, err := r.Cookie(sessionCookie)
-	require(err == nil && len(cookie.Value) == 64, 401, "UNAUTHENTICATED", "Sign in to continue.")
+	require(err == nil && tokenRE.MatchString(cookie.Value), 401, "UNAUTHENTICATED", "Sign in to continue.")
 	var u User
 	err = a.DB.QueryRow(r.Context(), `SELECT u.id::text,u.name,u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest(cookie.Value)).Scan(&u.ID, &u.Name, &u.Email, &u.Role)
 	require(err != pgx.ErrNoRows, 401, "UNAUTHENTICATED", "Session expired. Sign in again.")
@@ -82,12 +88,16 @@ type Registration struct {
 func cleanEmail(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	require(emailRE.MatchString(s) && len(s) <= 254, 400, "VALIDATION", "Invalid email.")
+	address, err := mail.ParseAddress(s)
+	require(err == nil && address.Address == s, 400, "VALIDATION", "Invalid email.")
 	return s
 }
 func (a *App) register(ctx context.Context, input Registration, role string) Object {
+	require(role == "customer" || role == "staff" || role == "admin", 400, "VALIDATION", "Invalid account role.")
 	input.Email = cleanEmail(input.Email)
 	validatePassword(input.Password)
-	require(len(strings.TrimSpace(input.Name)) > 0 && len(input.Name) <= 200, 400, "VALIDATION", "Name required.")
+	input.Name = strings.TrimSpace(input.Name)
+	require(len(input.Name) > 0 && len(input.Name) <= 200 && !strings.ContainsRune(input.Name, '\x00'), 400, "VALIDATION", "Name required.")
 	a.rate(ctx, "signup:"+input.Email, 5)
 	hash := a.hashPassword(ctx, input.Password)
 	return a.tx(ctx, func(tx pgx.Tx) any {
@@ -124,7 +134,14 @@ func (a *App) auth(w http.ResponseWriter, r *http.Request) any {
 		u := found[0]
 		delete(u, "password_hash")
 		t := token()
-		exec(ctx, a.DB, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '7 days')", digest(t), u["id"])
+		a.tx(ctx, func(tx pgx.Tx) any {
+			// Serialize session issuance with resets; a password checked before a
+			// concurrent reset must not create a session after revocation.
+			current := one(ctx, tx, "SELECT password_hash FROM users WHERE id=$1 FOR UPDATE", u["id"])
+			require(str(current["password_hash"]) == hash, 401, "INVALID_CREDENTIALS", "Invalid email or password.")
+			exec(ctx, tx, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '7 days')", digest(t), u["id"])
+			return nil
+		})
 		a.setCookie(w, t, 7*86400)
 		return u
 	case "logout":
@@ -158,13 +175,16 @@ func (a *App) auth(w http.ResponseWriter, r *http.Request) any {
 		}](w, r)
 		require(tokenRE.MatchString(v.Token), 400, "INVALID_TOKEN", "Invalid reset link.")
 		validatePassword(v.Password)
-		found := rows(ctx, a.DB, "SELECT 1 FROM password_resets WHERE token_hash=$1 AND expires_at>now()", digest(v.Token))
+		found := rows(ctx, a.DB, "SELECT user_id FROM password_resets WHERE token_hash=$1 AND expires_at>now()", digest(v.Token))
 		require(len(found) > 0, 400, "INVALID_TOKEN", "Invalid or expired reset link.")
 		hash := a.hashPassword(ctx, v.Password)
 		a.tx(ctx, func(tx pgx.Tx) any {
+			// All credential mutations lock the user first, avoiding a user/reset
+			// lock inversion with forgot-password and concurrent session issuance.
+			u := found[0]["user_id"]
+			one(ctx, tx, "SELECT id FROM users WHERE id=$1 FOR UPDATE", u)
 			matches := rows(ctx, tx, "SELECT * FROM password_resets WHERE token_hash=$1 AND expires_at>now() FOR UPDATE", digest(v.Token))
 			require(len(matches) > 0, 400, "INVALID_TOKEN", "Invalid or expired reset link.")
-			u := matches[0]["user_id"]
 			exec(ctx, tx, "UPDATE users SET password_hash=$1 WHERE id=$2", hash, u)
 			exec(ctx, tx, "DELETE FROM sessions WHERE user_id=$1", u)
 			exec(ctx, tx, "DELETE FROM password_resets WHERE user_id=$1", u)
