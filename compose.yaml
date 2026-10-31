@@ -5,9 +5,12 @@ x-backend: &backend
     APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
     APP_CURRENCY: ${APP_CURRENCY:-INR}
     HTTP_ADDR: 0.0.0.0:8080
-    SMTP_HOST: mailpit
-    SMTP_PORT: 1025
-    SMTP_FROM: billing@brightloop.local
+    SMTP_HOST: ${COMPOSE_SMTP_HOST:-mailpit}
+    SMTP_PORT: ${COMPOSE_SMTP_PORT:-1025}
+    SMTP_SECURE: ${SMTP_SECURE:-false}
+    SMTP_USER: ${SMTP_USER:-}
+    SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    SMTP_FROM: ${SMTP_FROM:-billing@brightloop.local}
   depends_on:
     postgres: {condition: service_healthy}
 services:

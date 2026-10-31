@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -128,24 +130,34 @@ func parseDate(s string) time.Time {
 	return d
 }
 func addDays(s string, n int) string { return parseDate(s).AddDate(0, 0, n).Format("2006-01-02") }
-func nextPeriod(s, cadence string, anchor int) string {
+func nextPeriod(s, cadence, anchorDate string) string {
 	d := parseDate(s)
+	anchor := parseDate(anchorDate)
 	switch cadence {
 	case "daily":
 		return addDays(s, 1)
 	case "weekly":
-		return addDays(s, 7)
+		days := int((d.Unix() - anchor.Unix()) / 86400)
+		return addDays(s, 7-((days%7+7)%7))
 	}
-	months := 1
+	year, month := d.Year(), d.Month()
 	if cadence == "yearly" {
-		months = 12
+		month = anchor.Month()
 	}
-	first := time.Date(d.Year(), d.Month()+time.Month(months), 1, 0, 0, 0, 0, time.UTC)
-	last := first.AddDate(0, 1, -1).Day()
-	if anchor > last {
-		anchor = last
+	boundary := func(year int, month time.Month) time.Time {
+		first := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+		day := min(anchor.Day(), first.AddDate(0, 1, -1).Day())
+		return first.AddDate(0, 0, day-1)
 	}
-	return first.AddDate(0, 0, anchor-1).Format("2006-01-02")
+	next := boundary(year, month)
+	if !next.After(d) {
+		if cadence == "yearly" {
+			next = boundary(year+1, month)
+		} else {
+			next = boundary(year, month+1)
+		}
+	}
+	return next.Format("2006-01-02")
 }
 func body[T any](w http.ResponseWriter, r *http.Request) T {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
@@ -170,6 +182,7 @@ func (a *App) Handle(fn func(http.ResponseWriter, *http.Request) any) http.Handl
 		requestID := token()[:24]
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Request-ID", requestID)
 		defer func() {
 			if p := recover(); p != nil {
@@ -181,10 +194,16 @@ func (a *App) Handle(fn func(http.ResponseWriter, *http.Request) any) http.Handl
 					switch e.Code {
 					case "23505":
 						f = fault{409, "CONFLICT", "A matching record already exists."}
-					case "23503", "23514", "22P02", "22003":
+					case "23502", "23503", "23514", "22P02", "22003", "22007", "22008":
 						f = fault{400, "VALIDATION", "Invalid data or referenced record."}
 					case "55P03", "40P01", "40001":
 						f = fault{409, "RETRY", "Concurrent update. Retry the request."}
+					case "57014":
+						f = fault{503, "TIMEOUT", "The operation timed out. Refresh its status before retrying."}
+					}
+				case error:
+					if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
+						f = fault{503, "TIMEOUT", "The operation timed out. Refresh its status before retrying."}
 					}
 				}
 				if f.Status >= 500 {
@@ -199,24 +218,26 @@ func (a *App) Handle(fn func(http.ResponseWriter, *http.Request) any) http.Handl
 		r = r.WithContext(ctx)
 		if r.Method != "GET" && r.Method != "HEAD" {
 			require(r.Header.Get("Origin") == a.Origin, 403, "ORIGIN", "Mutation origin not allowed.")
-			require(strings.HasPrefix(r.Header.Get("Content-Type"), "application/json"), 415, "CONTENT_TYPE", "Use application/json.")
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			require(err == nil && mediaType == "application/json", 415, "CONTENT_TYPE", "Use application/json.")
 		}
 		data := fn(w, r)
 		_ = json.NewEncoder(w).Encode(Object{"data": data, "request_id": requestID})
 	}
 }
 func New(ctx context.Context) (*App, error) {
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
 		return nil, errors.New("DATABASE_URL is required")
 	}
-	cfg, err := pgxpool.ParseConfig(url)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, err
 	}
 	cfg.MaxConns = 12
 	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	cfg.ConnConfig.RuntimeParams["statement_timeout"] = "15000"
+	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
 	db, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -229,11 +250,17 @@ func New(ctx context.Context) (*App, error) {
 	if origin == "" {
 		origin = "http://localhost:3000"
 	}
+	origin = strings.TrimRight(origin, "/")
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil || parsedOrigin.Host == "" || parsedOrigin.User != nil || parsedOrigin.Path != "" || parsedOrigin.RawQuery != "" || parsedOrigin.Fragment != "" || (parsedOrigin.Scheme != "http" && parsedOrigin.Scheme != "https") {
+		db.Close()
+		return nil, errors.New("APP_ORIGIN must be an http(s) origin without a path, credentials, query or fragment")
+	}
 	currency := os.Getenv("APP_CURRENCY")
 	if currency == "" {
 		currency = "INR"
 	}
-	if len(currency) != 3 {
+	if len(currency) != 3 || strings.IndexFunc(currency, func(r rune) bool { return r < 'A' || r > 'Z' }) >= 0 {
 		db.Close()
 		return nil, errors.New("APP_CURRENCY must be an ISO currency code")
 	}

@@ -50,15 +50,26 @@ func main() {
 		address = "127.0.0.1:8080"
 	}
 	server := &http.Server{Addr: address, Handler: a.Routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	serveErr := make(chan error, 1)
 	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdown)
+		serveErr <- server.ListenAndServe()
 	}()
 	slog.Info("Brightloop API ready", "address", address)
-	if err = server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		slog.Error("HTTP server failed")
+	select {
+	case err = <-serveErr:
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if shutdownErr := server.Shutdown(shutdown); shutdownErr != nil {
+			slog.Error("HTTP server shutdown failed", "error", shutdownErr)
+			if closeErr := server.Close(); closeErr != nil {
+				slog.Error("HTTP server close failed", "error", closeErr)
+			}
+		}
+		err = <-serveErr
+	}
+	if err != nil && err != http.ErrServerClosed {
+		slog.Error("HTTP server failed", "error", err)
 		os.Exit(1)
 	}
 }

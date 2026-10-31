@@ -29,7 +29,7 @@ func calculate(lines []pricedLine, discount Object) ([]pricedLine, decimal.Decim
 	if discount != nil && eligible.IsPositive() {
 		saving = number(discount["value"])
 		if discount["kind"] == "percentage" {
-			saving = eligible.Mul(saving).Div(decimal.NewFromInt(100))
+			saving = eligible.Mul(saving).DivRound(decimal.NewFromInt(100), 2)
 		}
 		saving = decimal.Min(saving.Round(2), eligible)
 	}
@@ -42,13 +42,13 @@ func calculate(lines []pricedLine, discount Object) ([]pricedLine, decimal.Decim
 			if l.Base.Equal(remainingBase) {
 				l.Discount = remaining
 			} else {
-				l.Discount = decimal.Min(remaining.Mul(l.Base).Div(remainingBase).Round(2), l.Base)
+				l.Discount = decimal.Min(remaining.Mul(l.Base).DivRound(remainingBase, 2), l.Base)
 			}
 			remaining = remaining.Sub(l.Discount)
 			remainingBase = remainingBase.Sub(l.Base)
 		}
 		net := l.Base.Sub(l.Discount)
-		l.TaxAmount = net.Mul(l.Tax).Div(decimal.NewFromInt(100)).Round(2)
+		l.TaxAmount = net.Mul(l.Tax).DivRound(decimal.NewFromInt(100), 2)
 		l.Total = net.Add(l.TaxAmount)
 		tax = tax.Add(l.TaxAmount)
 		total = total.Add(l.Total)
@@ -58,24 +58,33 @@ func calculate(lines []pricedLine, discount Object) ([]pricedLine, decimal.Decim
 func (a *App) billOne(ctx context.Context, recordID string) (processed bool, err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("billing failed: %T", p)
+			if e, ok := p.(error); ok {
+				err = fmt.Errorf("billing failed: %w", e)
+			} else {
+				err = fmt.Errorf("billing failed: %T", p)
+			}
 		}
 	}()
 	result := a.tx(ctx, func(tx pgx.Tx) any {
-		matches := rows(ctx, tx, "SELECT * FROM subscriptions WHERE id=$1 AND status='Active' AND paused=false AND next_billing_date<=CURRENT_DATE AND next_billing_date<end_date AND (retry_after IS NULL OR retry_after<=now()) FOR UPDATE SKIP LOCKED", recordID)
+		issued := today()
+		matches := rows(ctx, tx, "SELECT * FROM subscriptions WHERE id=$1 AND status='Active' AND paused=false AND start_date<=$2::date AND next_billing_date<=$2::date AND next_billing_date<end_date AND (retry_after IS NULL OR retry_after<=now()) FOR UPDATE SKIP LOCKED", recordID, issued)
 		if len(matches) == 0 {
 			return false
 		}
 		s := matches[0]
 		plan := s["plan_snapshot"].(map[string]any)
 		start := str(s["next_billing_date"])
-		end := nextPeriod(start, str(plan["cadence"]), integer(s["anchor_day"]))
+		require(start >= str(s["start_date"]), 409, "BILLING_CURSOR", "Billing cursor precedes subscription start.")
+		end := nextPeriod(start, str(plan["cadence"]), str(s["billing_anchor"]))
 		if end > str(s["end_date"]) {
 			end = str(s["end_date"])
 		}
-		existing := rows(ctx, tx, "SELECT id FROM invoices WHERE subscription_id=$1 AND period_start=$2", recordID, start)
+		existing := rows(ctx, tx, "SELECT period_end FROM invoices WHERE subscription_id=$1 AND period_start=$2", recordID, start)
 		if len(existing) > 0 {
-			exec(ctx, tx, "UPDATE subscriptions SET next_billing_date=$1 WHERE id=$2", end, recordID)
+			// Recover from the immutable billed period, never a newly recomputed cadence.
+			end = str(existing[0]["period_end"])
+			require(end > start && end <= str(s["end_date"]), 409, "BILLING_CURSOR", "Existing invoice period conflicts with subscription dates.")
+			exec(ctx, tx, "UPDATE subscriptions SET next_billing_date=$1,billing_error=NULL,retry_after=NULL WHERE id=$2", end, recordID)
 			return false
 		}
 		stored := rows(ctx, tx, "SELECT * FROM subscription_lines WHERE subscription_id=$1 ORDER BY id", recordID)
@@ -112,7 +121,7 @@ func (a *App) billOne(ctx context.Context, recordID string) (processed bool, err
 			discountJSON, e = json.Marshal(chosen)
 			check(e)
 		}
-		invoice := one(ctx, tx, `INSERT INTO invoices(subscription_id,customer_id,customer_snapshot,period_start,period_end,issued_on,due_on,currency,subtotal,discount_total,tax_total,total,discount_id,discount_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, recordID, s["customer_id"], customerJSON, start, end, today(), addDays(today(), integer(s["payment_terms_days"])), s["currency"], subtotal.StringFixed(2), saving.StringFixed(2), tax.StringFixed(2), total.StringFixed(2), discountID, discountJSON)
+		invoice := one(ctx, tx, `INSERT INTO invoices(subscription_id,customer_id,customer_snapshot,period_start,period_end,issued_on,due_on,currency,subtotal,discount_total,tax_total,total,discount_id,discount_snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, recordID, s["customer_id"], customerJSON, start, end, issued, addDays(issued, integer(s["payment_terms_days"])), s["currency"], subtotal.StringFixed(2), saving.StringFixed(2), tax.StringFixed(2), total.StringFixed(2), discountID, discountJSON)
 		for _, l := range computed {
 			exec(ctx, tx, "INSERT INTO invoice_lines(invoice_id,description,quantity,unit_price,discount_amount,tax_rate,tax_amount,total) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", invoice["id"], l.Description, l.Quantity, l.Unit.StringFixed(2), l.Discount.StringFixed(2), l.Tax.String(), l.TaxAmount.StringFixed(2), l.Total.StringFixed(2))
 		}
@@ -128,22 +137,37 @@ func (a *App) Billing(ctx context.Context) Object {
 	processed, failed := 0, 0
 	// Bounded passes catch up backlogs without a single unbounded request/transaction.
 	for pass := 0; pass < 3; pass++ {
-		ids := rows(ctx, a.DB, "SELECT id FROM subscriptions WHERE status='Active' AND paused=false AND next_billing_date<=CURRENT_DATE AND next_billing_date<end_date AND (retry_after IS NULL OR retry_after<=now()) ORDER BY next_billing_date,id LIMIT 25")
+		if ctx.Err() != nil {
+			break
+		}
+		ids := rows(ctx, a.DB, "SELECT id,next_billing_date FROM subscriptions WHERE status='Active' AND paused=false AND start_date<=$1::date AND next_billing_date<=$1::date AND next_billing_date<end_date AND (retry_after IS NULL OR retry_after<=now()) ORDER BY next_billing_date,id LIMIT 100", today())
 		if len(ids) == 0 {
 			break
 		}
 		for _, s := range ids {
+			if ctx.Err() != nil {
+				break
+			}
 			done, e := a.billOne(ctx, str(s["id"]))
 			if e != nil {
 				failed++
-				_, _ = a.DB.Exec(ctx, "UPDATE subscriptions SET billing_error='Billing failed; review worker logs and configuration',retry_after=now()+interval '5 minutes' WHERE id=$1", s["id"])
-				slog.Error("billing transaction failed", "subscription_id", s["id"])
+				// Do not overwrite success if another worker has already advanced this period.
+				if _, updateErr := a.DB.Exec(ctx, "UPDATE subscriptions SET billing_error='Billing failed; review worker logs and configuration',retry_after=now()+interval '5 minutes' WHERE id=$1 AND next_billing_date=$2", s["id"], s["next_billing_date"]); updateErr != nil && ctx.Err() == nil {
+					slog.Error("billing failure marker update failed", "subscription_id", s["id"], "error", updateErr)
+				}
+				slog.Error("billing transaction failed", "subscription_id", s["id"], "error", e)
 			} else if done {
 				processed++
 			}
 		}
 	}
-	exec(ctx, a.DB, `UPDATE subscriptions SET status='Closed',close_reason='expired' WHERE status='Active' AND end_date<=CURRENT_DATE AND (paused=true OR next_billing_date>=end_date) AND (plan_snapshot->>'auto_close')::boolean=true`)
+	if ctx.Err() == nil {
+		exec(ctx, a.DB, `WITH expired AS (
+			SELECT id FROM subscriptions WHERE status='Active' AND end_date<=$1::date
+			AND (paused=true OR next_billing_date>=end_date) AND (plan_snapshot->>'auto_close')::boolean=true
+			ORDER BY end_date,id LIMIT 100 FOR UPDATE SKIP LOCKED
+		) UPDATE subscriptions s SET status='Closed',paused=false,close_reason='expired' FROM expired WHERE s.id=expired.id`, today())
+	}
 	return Object{"processed": processed, "failed": failed}
 }
 func (a *App) runBilling(w http.ResponseWriter, r *http.Request) any {

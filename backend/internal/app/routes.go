@@ -5,6 +5,8 @@ import "net/http"
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Handle(func(w http.ResponseWriter, r *http.Request) any {
+		err := a.DB.Ping(r.Context())
+		require(err == nil, http.StatusServiceUnavailable, "UNAVAILABLE", "Database is unavailable.")
 		return Object{"service": "brightloop-go", "status": "ok"}
 	}))
 	mux.HandleFunc("GET /api/auth/{action}", a.Handle(a.auth))
