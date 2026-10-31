@@ -42,7 +42,8 @@ func (a *App) subscriptionCreationTx(ctx context.Context, keyed bool, fn func(pg
 			return result
 		}
 		e, ok := failure.(*pgconn.PgError)
-		if !keyed || attempt >= 2 || !ok || !(e.Code == "40001" || (e.Code == "23505" && e.ConstraintName == "subscription_create_requests_pkey")) {
+		retryable := ok && (e.Code == "40001" || (e.Code == "23505" && e.ConstraintName == "subscription_create_requests_pkey"))
+		if !keyed || attempt >= 2 || !retryable {
 			panic(failure)
 		}
 		check(ctx.Err())

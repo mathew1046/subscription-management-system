@@ -91,7 +91,7 @@ Keep the manifest when rerunning. The script reuses its records rather than rese
 3. **Billing:** let the worker process due periods or deliberately run the bounded billing action. If pause/closure reports `BILLING_DUE`, reconcile due billing before retrying the transition.
 4. **Invoice:** open `/portal/invoices`, confirm a draft and record a partial or full manual receipt. After an uncertain payment response, reconcile the ledger or deliberately retry the **same saved intent**, not a new request key.
 5. **Email/print:** queue an invoice email, inspect its current SMTP state and check Mailpit. Queue acceptance and SMTP acceptance do not guarantee inbox delivery. Use the invoice print button for the saved financial document.
-6. **Customer:** sign up a separate account, create subscriptions for its automatically linked customer record, then sign in in a private window. Verify it sees only its own subscriptions/invoices and permitted lifecycle actions—not admin or finance data.
+6. **Customer:** sign up a separate account, then have an administrator or staff member create subscriptions for its automatically linked customer record. Sign in in a private window and verify it sees only its own subscriptions/invoices and permitted lifecycle actions—not admin or finance data.
 7. **Recovery/reporting:** request a password reset and follow its Mailpit link. In `/finance`, change date/customer filters and inspect the payment ledger. Historical date filters do not turn current balances into historical balances.
 
 ## Development

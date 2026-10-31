@@ -529,7 +529,11 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 		}
 		seed(readKey, userReadRateLimit-1, 60)
 		request(first, "GET", "/api/auth/me", nil, 200)
-		response, err := second.Get(peerServer.URL + "/api/auth/me")
+		peerRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, peerServer.URL+"/api/auth/me", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := second.Do(peerRequest)
 		if err != nil {
 			t.Fatal(err)
 		}
