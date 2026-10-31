@@ -17,6 +17,7 @@ export function dateLabel(value: string) {
 }
 
 export function errorMessage(error: unknown) {
+  if (error instanceof ApiError && error.status === 0 && error.code === 'UNAVAILABLE') return 'The request did not complete. Check the current status before retrying.';
   if (error instanceof ApiError) return `${error.message}${error.requestId ? ` (Request: ${error.requestId})` : ''}`;
   return error instanceof Error ? error.message : 'The request could not be completed. Please try loading the current record again.';
 }

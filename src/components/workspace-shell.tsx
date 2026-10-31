@@ -47,12 +47,11 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const [signingOut, setSigningOut] = useState(false);
   const [signoutError, setSignoutError] = useState('');
   const logoutInFlight = useRef(false);
-  const current = session?.path === pathname ? session : null;
+  const current = session;
   const user = current?.user ?? null;
 
   useEffect(() => {
     let active = true;
-    setSession(null);
     api.me().then(value => {
       if (active) setSession({ path: pathname, user: value, error: '', signedOut: false });
     }).catch(cause => {
@@ -66,7 +65,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     logoutInFlight.current = true;
     setSigningOut(true);
     setSignoutError('');
-    try { await api.logout(); window.location.assign('/login'); }
+    try { await api.logout(); setSession(null); window.location.assign('/login'); }
     catch (cause) {
       setSignoutError(cause instanceof Error ? cause.message : 'Sign out did not complete. Please retry.');
       setSigningOut(false);

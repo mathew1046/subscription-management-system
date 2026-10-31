@@ -286,7 +286,7 @@ footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
   .toolbar { gap: 12px; }
   .toolbar .field, .toolbar > input, .toolbar > select { max-width: none; flex-basis: 100%; }
   .toolbar > .button { flex: 1; }
-  .button, .button.icon-button, .pagination .button { min-height: 44px; }
+  .button, .button.icon-button, .pagination .button, td .button.ghost, .lookup-pagination .button, .identity .signout-button { min-height: 44px; }
   input:not([type="checkbox"]):not([type="radio"]), select, textarea { min-height: 44px; font-size: 16px; }
   .checkbox-field { min-height: 44px; }
   .actions { gap: 10px; }

@@ -62,7 +62,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
       pageHeadingRef.current?.focus();
     } catch(error) {
       setSaveError(errorMessage(error));
-      if(error instanceof ApiError && (error.code==='UNAVAILABLE' || error.status>=500)) {
+      if(error instanceof ApiError && (error.code==='UNAVAILABLE' || error.code==='TIMEOUT' || error.status>=500)) {
         setUncertain(true);setRefreshKey(key=>key+1);
       }
     }

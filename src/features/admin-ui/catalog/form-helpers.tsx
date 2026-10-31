@@ -6,6 +6,7 @@ import {ApiError} from '@/lib/client';
 import {Button, Notice} from '@/components/ui';
 
 export function errorMessage(error:unknown):string {
+  if(error instanceof ApiError && error.status===0 && error.code==='UNAVAILABLE') return 'The request did not complete. Check the current status before retrying.';
   if(error instanceof ApiError) return `${error.message}${error.requestId ? ` (Request: ${error.requestId})` : ''}`;
   return error instanceof Error ? error.message : 'The request could not be completed. Please try again.';
 }
@@ -30,7 +31,7 @@ export function EditorForm<S extends z.ZodType>({schema,value,onSave,pending,err
     beforeSave?.();
     try {await onSave(result.data)} finally {submitting.current=false}
   }
-  return <form onSubmit={submit}>
+  return <form onSubmit={submit} onChange={()=>setIssues([])}>
     <ValidationNotice issues={issues}/>
     {error && <Notice error>{error}</Notice>}
     <fieldset disabled={pending} className="form-section">{children}</fieldset>
