@@ -4,6 +4,12 @@ A self-hosted subscription management platform for administrators, staff and cus
 
 Brightloop runs locally with **Next.js/React, Go and PostgreSQL**. Authentication, billing and email processing are self-hosted; no hosted database, auth or payment service is required.
 
+## Live application
+
+https://brightdata.mathewjoseph.xyz
+
+Sign in at https://brightdata.mathewjoseph.xyz/login using credentials supplied by the project team. Account passwords are not published in this repository.
+
 ## What it does
 
 - **Authentication:** customer signup, opaque-cookie sessions, password reset and admin/staff/customer roles. Only administrators create staff accounts.
