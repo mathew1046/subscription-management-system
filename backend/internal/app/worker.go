@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+const (
+	outboxSMTPTimeout       = 12 * time.Second
+	outboxPersistenceBudget = 5 * time.Second
+	outboxTaskTimeout       = outboxSMTPTimeout + outboxPersistenceBudget
+)
+
 func smtpSend(ctx context.Context, recipient, subject, body, id string) error {
 	host, port := os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT")
 	if host == "" {
@@ -102,8 +108,8 @@ func smtpSend(ctx context.Context, recipient, subject, body, id string) error {
 	if err = w.Close(); err != nil {
 		return err
 	}
-	// DATA acceptance completes delivery. Do not spend the outbox deadline on
-	// QUIT; deferred Close leaves time to persist acceptance in the transaction.
+	// DATA acceptance completes delivery. A QUIT failure must not turn an
+	// accepted message into a deliberate retry.
 	return nil
 }
 func (a *App) deliver(ctx context.Context) bool {
@@ -113,7 +119,19 @@ func (a *App) deliver(ctx context.Context) bool {
 			return false
 		}
 		m := pending[0]
-		err := smtpSend(ctx, str(m["recipient"]), str(m["subject"]), str(m["body"]), str(m["id"]))
+		// Keep the row locked, but reserve time for the acceptance/retry update
+		// and commit even if SMTP consumes its entire budget. Parent cancellation
+		// still cancels both phases; delivery remains at least once.
+		smtpDeadline := time.Now().Add(outboxSMTPTimeout)
+		if deadline, ok := ctx.Deadline(); ok && deadline.Add(-outboxPersistenceBudget).Before(smtpDeadline) {
+			smtpDeadline = deadline.Add(-outboxPersistenceBudget)
+		}
+		if !smtpDeadline.After(time.Now()) {
+			return false
+		}
+		smtpCtx, cancel := context.WithDeadline(ctx, smtpDeadline)
+		err := smtpSend(smtpCtx, str(m["recipient"]), str(m["subject"]), str(m["body"]), str(m["id"]))
+		cancel()
 		if err != nil {
 			exec(ctx, tx, "UPDATE outbox SET attempts=attempts+1,last_error='SMTP delivery failed; inspect configuration',available_at=now()+interval '1 minute'*power(2,LEAST(attempts,6)) WHERE id=$1", m["id"])
 			slog.Warn("email delivery deferred", "outbox_id", m["id"])
@@ -145,7 +163,7 @@ func (a *App) Work(ctx context.Context) {
 		workerTask(ctx, "billing", 30*time.Second, func(job context.Context) { a.Billing(job) })
 		for i := 0; i < 5 && ctx.Err() == nil; i++ {
 			pending := false
-			workerTask(ctx, "outbox", 12*time.Second, func(job context.Context) { pending = a.deliver(job) })
+			workerTask(ctx, "outbox", outboxTaskTimeout, func(job context.Context) { pending = a.deliver(job) })
 			if !pending {
 				break
 			}
