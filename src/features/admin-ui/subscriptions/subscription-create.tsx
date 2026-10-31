@@ -85,7 +85,7 @@ export function SubscriptionCreate({templateId}: {templateId?: string}) {
       if (savedId) setError(`The draft was created, but its quote could not be loaded. Do not create it again. ${errorMessage(reason)}`);
       else {
         setError(errorMessage(reason));
-        if (reason instanceof ApiError && reason.code === 'UNAVAILABLE') setUncertain(true);
+        if (reason instanceof ApiError && (reason.code === 'UNAVAILABLE' || reason.status >= 500)) setUncertain(true);
       }
     } finally {
       lock.current = false;

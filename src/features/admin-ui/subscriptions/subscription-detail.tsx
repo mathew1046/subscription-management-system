@@ -108,7 +108,7 @@ export function SubscriptionDetailScreen({id}: {id: string}) {
         setBillingDueError(true);
         setConfirmation(null);
       }
-      if (reason instanceof ApiError && reason.code === 'UNAVAILABLE') {
+      if (reason instanceof ApiError && (reason.code === 'UNAVAILABLE' || reason.status >= 500)) {
         setNeedsRefresh(true);
         setConfirmation(null);
       }
