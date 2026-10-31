@@ -10,10 +10,13 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Opt in with a fresh disposable database named brightloop_test_*; never use
@@ -54,43 +57,46 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 		}
 		return &http.Client{Jar: jar, Timeout: 25 * time.Second}
 	}
-	request := func(client *http.Client, method, path string, input any, status int) Object {
-		t.Helper()
-		var encoded []byte
-		if input != nil {
-			var err error
-			encoded, err = json.Marshal(input)
+	requestFor := func(t *testing.T) func(*http.Client, string, string, any, int) Object {
+		return func(client *http.Client, method, path string, input any, status int) Object {
+			t.Helper()
+			var encoded []byte
+			if input != nil {
+				var err error
+				encoded, err = json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			r, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(encoded))
 			if err != nil {
 				t.Fatal(err)
 			}
+			r.Header.Set("Origin", server.URL)
+			r.Header.Set("Content-Type", "application/json")
+			response, err := client.Do(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.StatusCode != status {
+				t.Fatalf("%s %s: status %d, want %d: %s", method, path, response.StatusCode, status, body)
+			}
+			var envelope Object
+			if err := json.Unmarshal(body, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if status != http.StatusOK {
+				return envelope["error"].(map[string]any)
+			}
+			return envelope["data"].(map[string]any)
 		}
-		r, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(encoded))
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Header.Set("Origin", server.URL)
-		r.Header.Set("Content-Type", "application/json")
-		response, err := client.Do(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer response.Body.Close()
-		body, err := io.ReadAll(response.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if response.StatusCode != status {
-			t.Fatalf("%s %s: status %d, want %d: %s", method, path, response.StatusCode, status, body)
-		}
-		var envelope Object
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			t.Fatal(err)
-		}
-		if status != http.StatusOK {
-			return envelope["error"].(map[string]any)
-		}
-		return envelope["data"].(map[string]any)
 	}
+	request := requestFor(t)
 	password := "FixtureOnly!Aa9"
 	a.register(ctx, Registration{Name: "Test administrator", Email: "admin@example.test", Password: password}, "admin")
 	admin, customer, other := newClient(), newClient(), newClient()
@@ -266,6 +272,242 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 	request(secondSession, "GET", "/api/auth/me", nil, 401)
 	request(customer, "POST", "/api/auth/login", registrationCredentials(registration), 401)
 	request(customer, "POST", "/api/auth/login", Object{"email": registration["email"], "password": reset["password"]}, 200)
+	t.Run("subscription creation request keys", func(t *testing.T) {
+		request := requestFor(t)
+		product := request(admin, "POST", "/api/products", Object{"name": "Replay product", "type": "software", "sale_price": "12.00", "cost_price": "1.00"}, 200)
+		variant := request(admin, "POST", "/api/variants", Object{"name": "Replay variant", "product_id": product["id"], "price_delta": "2.00"}, 200)
+		tax := request(admin, "POST", "/api/taxes", Object{"name": "Replay tax", "rate": "5"}, 200)
+		plan := request(admin, "POST", "/api/plans", Object{"name": "Replay plan", "price": "3.00", "cadence": "monthly", "min_quantity": 1, "available_from": now, "allow_pause": true, "allow_renew": true, "allow_close": true, "auto_close": true}, 200)
+		lines := []Object{
+			{"product_id": product["id"], "variant_id": variant["id"], "tax_id": tax["id"], "quantity": 1},
+			{"product_id": product["id"], "quantity": 2},
+		}
+		input := Object{"request_key": "abcdefab-1234-4567-89ab-abcdefabcdef", "customer_id": customerID, "plan_id": plan["id"], "start_date": now, "end_date": end, "quote_valid_until": now, "lines": lines}
+		clone := func(v Object) Object {
+			b, err := json.Marshal(v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var copy Object
+			if err := json.Unmarshal(b, &copy); err != nil {
+				t.Fatal(err)
+			}
+			return copy
+		}
+		first := request(staff, "POST", "/api/subscriptions", input, 200)
+		firstDetail := request(staff, "GET", "/api/subscriptions/"+str(first["id"]), nil, 200)
+		replay := request(staff, "POST", "/api/subscriptions", input, 200)
+		if !reflect.DeepEqual(first, replay) {
+			t.Fatal("exact creation replay changed the subscription")
+		}
+		normalized := clone(input)
+		for _, field := range []string{"request_key", "customer_id", "plan_id"} {
+			normalized[field] = strings.ToUpper(str(normalized[field]))
+		}
+		for _, item := range normalized["lines"].([]any) {
+			line := item.(map[string]any)
+			for _, field := range []string{"product_id", "variant_id", "tax_id"} {
+				if line[field] != nil {
+					line[field] = strings.ToUpper(str(line[field]))
+				}
+			}
+		}
+		normalized["payment_terms_days"] = 14
+		if got := request(staff, "POST", "/api/subscriptions", normalized, 200); !reflect.DeepEqual(first, got) {
+			t.Fatal("UUID case/default terms changed canonical replay")
+		}
+		// Every accepted input field participates, including line order and
+		// nullable variant/tax IDs; mismatches never revalidate the catalog.
+		for _, field := range []string{"customer_id", "plan_id", "start_date", "end_date", "quote_valid_until", "payment_terms_days", "product_id", "variant_id", "tax_id", "quantity", "line_order"} {
+			changed := clone(input)
+			line := changed["lines"].([]any)[0].(map[string]any)
+			switch field {
+			case "customer_id", "plan_id":
+				changed[field] = "99999999-9999-4999-8999-999999999999"
+			case "start_date":
+				changed[field] = addDays(now, 1)
+			case "end_date":
+				changed[field] = addDays(end, 1)
+			case "quote_valid_until":
+				changed[field] = addDays(now, 1)
+			case "payment_terms_days":
+				changed[field] = 0
+			case "product_id":
+				line[field] = "99999999-9999-4999-8999-999999999999"
+			case "variant_id", "tax_id":
+				line[field] = nil
+			case "quantity":
+				line[field] = 2
+			case "line_order":
+				items := changed["lines"].([]any)
+				items[0], items[1] = items[1], items[0]
+			}
+			if got := request(staff, "POST", "/api/subscriptions", changed, 409); got["code"] != "CONFLICT" {
+				t.Fatalf("%s mismatch returned %v", field, got)
+			}
+		}
+		actorScoped := request(admin, "POST", "/api/subscriptions", input, 200)
+		if actorScoped["id"] == first["id"] {
+			t.Fatal("different actors shared a creation key")
+		}
+		request(customer, "POST", "/api/subscriptions", input, 403)
+		invalid := clone(input)
+		invalid["request_key"] = "invalid"
+		request(staff, "POST", "/api/subscriptions", invalid, 400)
+		invalid = clone(input)
+		invalid["lines"].([]any)[0].(map[string]any)["quantity"] = 0
+		request(staff, "POST", "/api/subscriptions", invalid, 400)
+		legacy := clone(input)
+		delete(legacy, "request_key")
+		legacyFirst := request(staff, "POST", "/api/subscriptions", legacy, 200)
+		if got := request(staff, "POST", "/api/subscriptions", legacy, 200); got["id"] == legacyFirst["id"] {
+			t.Fatal("unkeyed creation unexpectedly became idempotent")
+		}
+		zeroTerms := clone(input)
+		zeroTerms["request_key"] = "33333333-3333-4333-8333-333333333333"
+		zeroTerms["payment_terms_days"] = 0
+		if got := request(staff, "POST", "/api/subscriptions", zeroTerms, 200); integer(got["payment_terms_days"]) != 0 {
+			t.Fatal("explicit zero payment terms were replaced with the default")
+		}
+		delete(zeroTerms, "payment_terms_days")
+		request(staff, "POST", "/api/subscriptions", zeroTerms, 409)
+		// Failed validation must roll back even the early key reservation.
+		invalid = clone(input)
+		invalid["request_key"] = "44444444-4444-4444-8444-444444444444"
+		invalid["lines"].([]any)[0].(map[string]any)["variant_id"] = "99999999-9999-4999-8999-999999999999"
+		before := one(ctx, a.DB, "SELECT (SELECT count(*) FROM subscriptions) AS subscriptions,(SELECT count(*) FROM subscription_lines) AS lines,(SELECT count(*) FROM audit_events WHERE action='subscription.create') AS audits")
+		request(staff, "POST", "/api/subscriptions", invalid, 404)
+		after := one(ctx, a.DB, "SELECT (SELECT count(*) FROM subscriptions) AS subscriptions,(SELECT count(*) FROM subscription_lines) AS lines,(SELECT count(*) FROM audit_events WHERE action='subscription.create') AS audits")
+		if !reflect.DeepEqual(before, after) || integer(one(ctx, a.DB, "SELECT count(*) AS count FROM subscription_create_requests WHERE request_key=$1", invalid["request_key"])["count"]) != 0 {
+			t.Fatal("failed creation left subscription/lines/audit/key state")
+		}
+		invalid["lines"] = lines
+		request(staff, "POST", "/api/subscriptions", invalid, 200)
+
+		concurrent := clone(input)
+		concurrent["request_key"] = "55555555-5555-4555-8555-555555555555"
+		encoded, err := json.Marshal(concurrent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Hold INSERTs but permit the initial lookups: both transactions must
+		// establish their RR snapshots before either reservation can win.
+		blocker, err := a.DB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(ctx)
+		exec(ctx, blocker, "LOCK TABLE subscription_create_requests IN SHARE MODE")
+		type creationResult struct {
+			data Object
+			err  error
+		}
+		results := make(chan creationResult, 2)
+		for range 2 {
+			go func() {
+				r, err := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/subscriptions", bytes.NewReader(encoded))
+				if err != nil {
+					results <- creationResult{err: err}
+					return
+				}
+				r.Header.Set("Origin", server.URL)
+				r.Header.Set("Content-Type", "application/json")
+				response, err := staff.Do(r)
+				if err != nil {
+					results <- creationResult{err: err}
+					return
+				}
+				defer response.Body.Close()
+				var envelope Object
+				if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+					results <- creationResult{err: err}
+					return
+				}
+				if response.StatusCode != 200 {
+					results <- creationResult{err: fmt.Errorf("concurrent creation status %d: %v", response.StatusCode, envelope)}
+					return
+				}
+				results <- creationResult{data: envelope["data"].(map[string]any)}
+			}()
+		}
+		bothWaiting := false
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			waiting := one(ctx, a.DB, `SELECT count(*) AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'INSERT INTO subscription_create_requests%'`)
+			if integer(waiting["count"]) == 2 {
+				bothWaiting = true
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err := blocker.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var winner Object
+		for range 2 {
+			got := <-results
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			if winner != nil && !reflect.DeepEqual(winner, got.data) {
+				t.Fatal("concurrent creation returned different subscriptions")
+			}
+			winner = got.data
+		}
+		if !bothWaiting {
+			t.Fatal("concurrent requests did not both establish snapshots before the reservation race")
+		}
+		counts := one(ctx, a.DB, `SELECT count(*) AS requests,count(DISTINCT s.id) AS subscriptions,(SELECT count(*) FROM subscription_lines WHERE subscription_id=$2) AS lines,(SELECT count(*) FROM audit_events WHERE action='subscription.create' AND resource_id=$2) AS audits FROM subscription_create_requests r JOIN subscriptions s ON s.id=r.subscription_id WHERE r.request_key=$1`, concurrent["request_key"], winner["id"])
+		if integer(counts["requests"]) != 1 || integer(counts["subscriptions"]) != 1 || integer(counts["lines"]) != len(lines) || integer(counts["audits"]) != 1 {
+			t.Fatalf("concurrent creation was not atomic and unique: %v", counts)
+		}
+
+		// Changed catalog rules and prices cannot affect an already committed
+		// request, even when a fresh creation would now be rejected.
+		exec(ctx, a.DB, "UPDATE products SET archived=true,sale_price=999 WHERE id=$1", product["id"])
+		exec(ctx, a.DB, "UPDATE variants SET price_delta=999 WHERE id=$1", variant["id"])
+		exec(ctx, a.DB, "UPDATE taxes SET rate=99 WHERE id=$1", tax["id"])
+		exec(ctx, a.DB, "UPDATE plans SET available_from=$2,price=999,min_quantity=100 WHERE id=$1", plan["id"], addDays(now, 1))
+		if got := request(staff, "POST", "/api/subscriptions", input, 200); !reflect.DeepEqual(first, got) {
+			t.Fatal("catalog changes affected replay")
+		}
+		if got := request(staff, "GET", "/api/subscriptions/"+str(first["id"]), nil, 200); !reflect.DeepEqual(firstDetail, got) {
+			t.Fatal("replay changed the original line prices, taxes or quote totals")
+		}
+		fresh := clone(input)
+		fresh["request_key"] = "66666666-6666-4666-8666-666666666666"
+		request(staff, "POST", "/api/subscriptions", fresh, 400)
+
+		// Seed a committed historical request in this disposable DB rather
+		// than changing the process clock or rewriting any stored payload.
+		historical := clone(input)
+		historical["request_key"] = "77777777-7777-4777-8777-777777777777"
+		historical["start_date"] = addDays(now, -2)
+		historical["end_date"] = addDays(now, -1)
+		historical["quote_valid_until"] = addDays(now, -2)
+		historical["payment_terms_days"] = 14
+		payloadInput := clone(historical)
+		delete(payloadInput, "request_key")
+		// Null/omitted optional line IDs have one canonical representation.
+		payloadInput["lines"].([]any)[1].(map[string]any)["variant_id"] = nil
+		payloadInput["lines"].([]any)[1].(map[string]any)["tax_id"] = nil
+		payload, err := json.Marshal(payloadInput)
+		if err != nil {
+			t.Fatal(err)
+		}
+		historicalSub := a.tx(ctx, func(tx pgx.Tx) any {
+			s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor) SELECT customer_id,plan_id,$2,$3,$2,$2,EXTRACT(DAY FROM $2::date)::integer,currency,plan_snapshot,$2 FROM subscriptions WHERE id=$1 RETURNING *`, first["id"], historical["start_date"], historical["end_date"])
+			exec(ctx, tx, `INSERT INTO subscription_lines(subscription_id,product_id,variant_id,description,quantity,unit_price,tax_rate) SELECT $2,product_id,variant_id,description,quantity,unit_price,tax_rate FROM subscription_lines WHERE subscription_id=$1`, first["id"], s["id"])
+			exec(ctx, tx, `INSERT INTO subscription_create_requests(actor_id,request_key,payload,subscription_id) SELECT actor_id,$2,$3,$4 FROM subscription_create_requests WHERE subscription_id=$1`, first["id"], historical["request_key"], payload, s["id"])
+			exec(ctx, tx, `INSERT INTO audit_events(actor_id,action,resource_id) SELECT actor_id,'subscription.create',$2 FROM subscription_create_requests WHERE subscription_id=$1`, first["id"], s["id"])
+			return s
+		}).(Object)
+		if got := request(staff, "POST", "/api/subscriptions", historical, 200); got["id"] != historicalSub["id"] || got["end_date"] != historical["end_date"] || !reflect.DeepEqual(first["plan_snapshot"], got["plan_snapshot"]) {
+			t.Fatal("expired historical request did not replay its original subscription")
+		}
+		delete(historical, "request_key")
+		request(staff, "POST", "/api/subscriptions", historical, 400)
+	})
 	// A bounded local API sample, not proof of every frontend page or load SLA.
 	exec(ctx, a.DB, `INSERT INTO subscriptions(customer_id,plan_id,status,start_date,end_date,quote_valid_until,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor)
 		SELECT $1,$2,'Active',$3::date,$4::date,$3::date,$3::date+1,EXTRACT(DAY FROM $3::date)::integer,'INR',$5,$3::date FROM generate_series(1,1000)`, customerID, plan["id"], now, end, plan)

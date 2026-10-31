@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type LineInput struct {
@@ -16,6 +17,7 @@ type LineInput struct {
 	TaxID     *string `json:"tax_id"`
 }
 type SubscriptionInput struct {
+	RequestKey *string     `json:"request_key,omitempty"`
 	CustomerID string      `json:"customer_id"`
 	PlanID     string      `json:"plan_id"`
 	Start      string      `json:"start_date"`
@@ -24,6 +26,29 @@ type SubscriptionInput struct {
 	Terms      *int        `json:"payment_terms_days"`
 	Lines      []LineInput `json:"lines"`
 }
+
+// Only explicitly keyed subscription creation may restart a failed transaction.
+// A unique-key loser can have a snapshot predating the winner, so it must begin
+// a new transaction before looking up the committed reservation. Never retry an
+// ambiguous commit/network failure or an unkeyed, non-idempotent creation.
+func (a *App) subscriptionCreationTx(ctx context.Context, keyed bool, fn func(pgx.Tx) any) any {
+	for attempt := 0; ; attempt++ {
+		var result, failure any
+		func() {
+			defer func() { failure = recover() }()
+			result = a.tx(ctx, fn)
+		}()
+		if failure == nil {
+			return result
+		}
+		e, ok := failure.(*pgconn.PgError)
+		if !keyed || attempt >= 2 || !ok || !(e.Code == "40001" || (e.Code == "23505" && e.ConstraintName == "subscription_create_requests_pkey")) {
+			panic(failure)
+		}
+		check(ctx.Err())
+	}
+}
+
 type LifecycleInput struct {
 	Action string `json:"action"`
 	End    string `json:"end_date"`
@@ -114,17 +139,55 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 	}
 	validID(v.CustomerID)
 	validID(v.PlanID)
+	v.CustomerID = strings.ToLower(v.CustomerID)
+	v.PlanID = strings.ToLower(v.PlanID)
+	if v.RequestKey != nil {
+		validID(*v.RequestKey)
+		key := strings.ToLower(*v.RequestKey)
+		v.RequestKey = &key
+	}
 	parseDate(v.Start)
 	parseDate(v.End)
 	parseDate(v.QuoteUntil)
 	require(v.End > v.Start && terms >= 0 && terms <= 365, 400, "VALIDATION", "Invalid subscription dates or payment terms.")
-	now := today()
-	require(v.End > now && v.QuoteUntil >= now, 400, "INVALID_DATE", "Subscription and quotation must not be expired.")
 	validateLines(v.Lines)
-	return a.tx(ctx, func(tx pgx.Tx) any {
+	for i := range v.Lines {
+		line := &v.Lines[i]
+		line.ProductID = strings.ToLower(line.ProductID)
+		if line.VariantID != nil {
+			id := strings.ToLower(*line.VariantID)
+			line.VariantID = &id
+		}
+		if line.TaxID != nil {
+			id := strings.ToLower(*line.TaxID)
+			line.TaxID = &id
+		}
+	}
+	canonical := v
+	canonical.RequestKey = nil
+	canonical.Terms = &terms
+	payload, err := json.Marshal(canonical)
+	check(err)
+	return a.subscriptionCreationTx(ctx, v.RequestKey != nil, func(tx pgx.Tx) any {
 		// All plan/product/variant/tax values must come from one catalog snapshot.
-		// Conflicting catalog writes fail with RETRY rather than mixing revisions.
+		// Conflicting catalog writes abort rather than mixing revisions; only
+		// keyed creation can restart against a fresh snapshot.
 		exec(ctx, tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+		var subscriptionID any
+		if v.RequestKey != nil {
+			previous := rows(ctx, tx, `SELECT subscription_id,payload=$3::jsonb AS matches FROM subscription_create_requests WHERE actor_id=$1 AND request_key=$2`, u.ID, *v.RequestKey, payload)
+			if len(previous) != 0 {
+				require(truth(previous[0]["matches"]), 409, "CONFLICT", "Request key was already used with different subscription details.")
+				return one(ctx, tx, "SELECT * FROM subscriptions WHERE id=$1", previous[0]["subscription_id"])
+			}
+			// Reserve before consulting mutable catalog/time rules. A concurrent
+			// winner causes 23505/40001, handled above with a fresh snapshot.
+			// The deferred FK requires the subscription to exist at commit.
+			reservation := one(ctx, tx, `INSERT INTO subscription_create_requests(actor_id,request_key,payload,subscription_id) VALUES($1,$2,$3,gen_random_uuid()) RETURNING subscription_id`, u.ID, *v.RequestKey, payload)
+			subscriptionID = reservation["subscription_id"]
+		}
+		now := today()
+		require(v.End > now && v.QuoteUntil >= now, 400, "INVALID_DATE", "Subscription and quotation must not be expired.")
 		one(ctx, tx, "SELECT id FROM customers WHERE id=$1 FOR KEY SHARE", v.CustomerID)
 		plan := one(ctx, tx, "SELECT * FROM plans WHERE id=$1 FOR SHARE", v.PlanID)
 		require(v.Start >= str(plan["available_from"]) && (plan["available_until"] == nil || v.Start <= str(plan["available_until"])), 400, "PLAN_UNAVAILABLE", "Start is outside plan availability.")
@@ -146,7 +209,7 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 		require(subtotal.LessThanOrEqual(limit) && total.LessThanOrEqual(limit), 400, "VALIDATION", "Recurring amount exceeds the supported billing limit.")
 		snap, e := json.Marshal(plan)
 		check(e)
-		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9,$3) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, terms, parseDate(v.Start).Day(), a.Currency, snap)
+		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor,id) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9,$3,COALESCE($10::uuid,gen_random_uuid())) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, terms, parseDate(v.Start).Day(), a.Currency, snap, subscriptionID)
 		for i, line := range v.Lines {
 			resolved := resolvedLines[i]
 			exec(ctx, tx, `INSERT INTO subscription_lines(subscription_id,product_id,variant_id,description,quantity,unit_price,tax_rate) VALUES($1,$2,$3,$4,$5,$6,$7)`, s["id"], line.ProductID, line.VariantID, resolved["description"], line.Quantity, resolved["unit_price"], resolved["tax_rate"])

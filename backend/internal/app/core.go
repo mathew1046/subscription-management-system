@@ -40,6 +40,10 @@ type fault struct {
 	Status        int
 	Code, Message string
 }
+type rateLimitFault struct {
+	fault
+	RetryAfter int
+}
 
 func (e fault) Error() string { return e.Message }
 func require(ok bool, status int, code, message string) {
@@ -188,6 +192,9 @@ func (a *App) Handle(fn func(http.ResponseWriter, *http.Request) any) http.Handl
 			if p := recover(); p != nil {
 				f := fault{500, "INTERNAL", "Request failed. Contact the team with the request ID."}
 				switch e := p.(type) {
+				case rateLimitFault:
+					f = e.fault
+					w.Header().Set("Retry-After", strconv.Itoa(max(1, e.RetryAfter)))
 				case fault:
 					f = e
 				case *pgconn.PgError:
