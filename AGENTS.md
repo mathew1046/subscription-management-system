@@ -1,50 +1,57 @@
-# AGENTS.md
+# AGENTS.md — Brightloop team rules
 
-## Mission and precedence
+Read `plan.md` and your role file before editing. Mathew owns most development, all backend work, final integration and testing decisions. Latest user instructions take precedence.
 
-Read `plan.md` before changing code. Build the Brightloop subscription system quickly with a professional UI and correct core workflows. Follow the latest explicit user instruction. Mathew owns most implementation, all integration, and testing decisions.
+## Mandatory skills
 
-## Speed-first execution
+Read and apply `.agents/skills/choose-backend-patterns/SKILL.md` when making architecture or refactoring decisions. Read `.agents/skills/build-subscription-core/SKILL.md` for subscription, billing, auth, payment or reporting changes. These are repository-local skills available to everyone; if your agent does not auto-discover them, explicitly open the files. Use both to identify the actual problem, select the simplest justified design, and preserve financial/authorization invariants. Do not add every pattern or copy the transcript's in-memory singleton.
 
-- **Complete development fast. Implement the requested feature directly with the smallest maintainable change.**
-- **Do not write, generate, or run automated tests unless Mathew explicitly requests them. Do not add testing frameworks, test fixtures/suites, coverage tooling, benchmark/load-test work, or testing CI by default.**
-- **Do not create extra documentation, reports, CI/CD pipelines, large refactors, speculative abstractions, or unrequested features unless Mathew asks.** Keep necessary environment variable names and run instructions brief.
-- A normal build/type-check needed to resolve integration/compiler errors is allowed; do not repeatedly run it without a reason. Dedicated browser/manual acceptance passes also wait for Mathew's instruction.
-- If verification is deferred, say so. Do not claim production readiness, under-two-second performance, or passed tests without evidence.
-- Speed does not authorize disabling authentication, input validation, authorization, database constraints, or billing correctness. These are implementation requirements.
+Suggested agent instruction: “Read AGENTS.md, plan.md, my role file and both repository-local skills. Work only on my branch and owned files. Implement the next incomplete deliverable. Do not add/run tests or estimate development time.”
 
-## Work ownership
+## Separate branches are required
 
-| Owner | Responsibility |
+- Mathew: `feat/mathew-core` — Go backend, SQL, shared contracts, integration and infrastructure.
+- Shaheem: `feat/shaheem-admin-ui` — admin/staff UI and shared design components.
+- Alfred: `feat/alfred-portal-finance-ui` — auth presentation, customer portal, finance UI.
+- Start/sync each branch from the current `main`. Do not work in another person's branch or share a working directory between concurrent agents; use separate clones/worktrees.
+- Commit to your own branch and open a PR to `main`. Mathew owns merges. The initial foundation may be pushed to `main` to unblock the team because the user explicitly authorized it. This is not blanket permission for collaborators to commit directly to `main`.
+- Coordinate contract changes with Mathew and shared styling changes with Shaheem. Never force-push or discard another person's work. Do not publish secrets.
+
+## Technical boundaries
+
+- **Go backend + self-hosted PostgreSQL; TypeScript/React frontend. No hosted database/auth/payment/email APIs, Supabase, Firebase, managed backend wrappers or external business services.** Local open-source libraries, Docker images and the standard SMTP protocol are permitted.
+- Go implements auth, permissions, validation, state transitions, exact billing, payment recording and reports. TypeScript provides typed client calls and presentation only.
+- UI uses `src/lib/client.ts` and `src/lib/contracts/index.ts`. No direct DB access, duplicated financial calculations or client-side permission enforcement as a substitute for backend checks.
+- Keep one Go application codebase with separate API/worker commands. Use direct parameterized SQL and domain functions; no speculative microservices, caches, CQRS, event sourcing or generic repositories.
+- Freeze shared contracts before dependent UI work. Schema changes require new numbered SQL migrations after the initial migration is deployed.
+
+## Ownership
+
+| Person | Owned paths |
 | --- | --- |
-| Mathew | Scaffold/config/dependencies, schema/migrations, shared contracts, all backend/domain services and API routes, auth/RLS, billing/jobs, taxes/discounts/payments, reporting queries, email, integration, merges and requested testing |
-| Shaheem | Admin/staff presentation, catalog/plan/quote/subscription/settings UI; shared visual shell and components |
-| Alfred | Auth presentation, customer portal, invoice/payment/print UI, dashboard and report presentation |
+| Mathew | `backend/**`, `src/lib/**`, package/lockfiles, Docker/Compose/env/config, repo skills, `plan.md`, `AGENTS.md`, integration |
+| Shaheem | `src/features/admin-ui/**`, `src/app/admin/**`, `src/components/**`, `src/app/globals.css`; coordinate root layout changes |
+| Alfred | `src/features/portal-finance-ui/**`, `src/app/portal/**`, `src/app/finance/**`, login/signup/forgot-password/reset-password pages |
 
-Helpers must use Mathew's contracts; do not independently implement business rules or edit schemas, shared DTOs, configuration or dependencies. Coordinate shared-file needs with Mathew. Keep existing teammates' changes intact.
+Existing starter screens are functional foundations, not finished teammate deliverables. Extend them without changing API behavior. Temporary layout examples must be clearly marked and isolated; never display invented success or financial totals as real data.
 
-## Project conventions
+## Speed and verification policy
 
-- Use the stack in `plan.md`; one application and database. Reuse installed components and existing patterns.
-- Keep routes thin and business logic in domain services. Put shared DTOs/validation in `src/lib/contracts/`.
-- Prefer functions, explicit interfaces and database transactions over abstract class hierarchies. Add a pattern only when it removes a demonstrated problem; do not install all ten backend patterns.
-- Helpers may use temporary typed UI examples to unblock layout work, clearly isolated from production. Never ship fake successful mutations or fabricated report totals.
-- Keep UI responsive, accessible and consistent; include loading, empty, error and success states. Use invoice print CSS rather than adding a document-generation system by default.
+**Complete development fast. Never assume or estimate development duration. Do not write, generate or run automated tests, browser/manual test passes, benchmarks, load tests, test fixtures, coverage tooling or CI unless Mathew explicitly requests them.** Do not add extra reports, documentation, speculative features or large refactors. The requested plan/role files/skills are authorized exceptions to the documentation restriction.
 
-## Non-negotiable correctness
+Build/type checks and ordinary code inspection to catch compilation/integration errors are allowed. Run only checks justified by changed code. Do not equate a successful build with tested runtime behavior or production readiness. Clearly report deferred verification.
 
-- Enforce role and record ownership at every server entry point. Enable RLS for exposed data. Prevent clients from assigning privileged roles; only admins can add staff.
-- Use managed auth; enforce unique email and the specified password/reset policy. Never commit credentials or expose privileged keys in browser code.
-- Calculate all money/taxes/discounts on the server using decimal arithmetic and an explicit rounding rule. Snapshot financial records and enforce state transitions.
-- Generate recurring invoices transactionally with a unique subscription-period key. Lock/recheck concurrent work; advance the billing cursor only with a successful invoice write. Catch up due periods in bounded batches.
-- Atomically enforce discount usage caps and payment idempotency. Payments may be partial; never mark an invoice paid merely because a payment request was submitted.
-- Keep billing date, pause/renewal and discount precedence rules aligned with `plan.md`. Do not silently invent incompatible financial semantics.
-- Paginate and index data access. Treat performance promises as unverified until Mathew authorizes measurement.
-- Implement real integration failures honestly. Missing email/provider configuration is a blocker to that capability, not permission to display a fake success.
+Speed does not waive input validation, hashing, role/ownership checks, transaction safety, idempotency, money precision, error handling or required UI states. These are implementation work.
 
-## Git and delivery
+## Financial and security invariants
 
-- Use the role branches in `plan.md`; Mathew controls integration into `main`. Existing explicit authorization to push applies only to the requested scope.
-- Keep commits focused. Do not force-push, discard another person's work, change repository settings, or run destructive database operations without explicit authorization.
-- Before changing a shared contract, coordinate it and identify affected callers. Preserve compatible contracts where practical.
-- End each task with a short summary: implemented behavior, changed interfaces, build/type-check results if run, deferred testing, and blockers. No unsolicited reports or lengthy documentation.
+- Authenticate each protected request; scope customer reads/writes to their own records. Only admins create staff or change catalog/rules. Never accept a role from signup input.
+- Keep credentials, password/reset/session hashes and privileged DB access server-side. Use reviewed Argon2id primitives, opaque sessions, secure cookies in HTTPS deployments and same-origin mutation checks.
+- Snapshot subscription terms and invoice financial values. Use decimal strings over HTTP and decimal arithmetic/SQL numeric internally.
+- Lock subscriptions/invoices for transitions. Enforce unique billing periods and payment request keys in PostgreSQL; consume discounts atomically. Do not retry non-idempotent writes blindly.
+- Keep outbox enqueue and corresponding business write transactional. SMTP delivery is at least once, not exactly once; surface failures without claiming delivery.
+- Use finite request/job timeouts, bounded DB pools, pagination, due-date indexes and catch-up batches. The PDF's under-two-second goal remains unverified until Mathew requests measurement.
+
+## Handoff
+
+End work with implemented behavior, any changed interfaces, files touched, build results if run, verification deferred and concrete blockers. Do not send messages to teammates, change repo settings, deploy publicly or create third-party accounts unless separately requested.

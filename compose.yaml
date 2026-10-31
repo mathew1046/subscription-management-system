@@ -1,0 +1,53 @@
+x-backend: &backend
+  build: ./backend
+  environment: &backend-env
+    DATABASE_URL: postgres://brightloop:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/brightloop?sslmode=disable
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+    APP_CURRENCY: ${APP_CURRENCY:-INR}
+    HTTP_ADDR: 0.0.0.0:8080
+    SMTP_HOST: mailpit
+    SMTP_PORT: 1025
+    SMTP_FROM: billing@brightloop.local
+  depends_on:
+    postgres: {condition: service_healthy}
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: brightloop
+      POSTGRES_USER: brightloop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brightloop"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+  migrate:
+    <<: *backend
+    command: ["migrate"]
+  api:
+    <<: *backend
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  worker:
+    <<: *backend
+    command: ["worker"]
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      mailpit: {condition: service_started}
+  web:
+    build: .
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: {condition: service_started}
+volumes:
+  pgdata:

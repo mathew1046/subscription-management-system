@@ -1,0 +1,11 @@
+'use client';
+import {useState} from 'react';
+import Link from 'next/link';
+import {api} from '@/lib/client';
+import {Button,Field,Notice,Panel} from '@/components/ui';
+export function AuthForm({mode}:{mode:'login'|'signup'|'forgot'|'reset'}){
+ const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
+ const title={login:'Welcome back',signup:'Create your account',forgot:'Reset your password',reset:'Choose a new password'}[mode];
+ async function submit(event:React.FormEvent<HTMLFormElement>){event.preventDefault();setBusy(true);setError('');setMessage('');const f=new FormData(event.currentTarget);const email=String(f.get('email')||''),password=String(f.get('password')||'');try{if(mode==='login'){await api.login({email,password});window.location.href='/';}if(mode==='signup'){await api.signup({email,password,name:String(f.get('name'))});setMessage('Account created. Sign in to continue.');}if(mode==='forgot'){await api.forgotPassword(email);setMessage('If this account exists, a reset link has been queued for email delivery.');}if(mode==='reset'){await api.resetPassword(new URLSearchParams(window.location.search).get('token')||'',password);setMessage('Password updated. Sign in again.');}}catch(e){setError(e instanceof Error?e.message:'Request failed.')}finally{setBusy(false)}}
+ return <div className="auth"><Panel title={title}><form onSubmit={submit}>{mode==='signup'&&<Field label="Full name" name="name" required maxLength={200}/>} {mode!=='reset'&&<Field label="Email address" name="email" type="email" autoComplete="email" required/>}{mode!=='forgot'&&<Field label="Password" name="password" type="password" minLength={mode==='login'?1:9} maxLength={128} autoComplete={mode==='login'?'current-password':'new-password'} required/>}{(mode==='signup'||mode==='reset')&&<p>Use at least 9 characters with uppercase, lowercase and a special character.</p>}{error&&<Notice error>{error}</Notice>}{message&&<Notice>{message}</Notice>}<Button disabled={busy}>{busy?'Please wait…':'Continue'}</Button></form><div className="actions"><Link href="/login">Sign in</Link><Link href="/signup">Sign up</Link><Link href="/forgot-password">Forgot password?</Link></div></Panel></div>;
+}

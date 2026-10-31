@@ -1,64 +1,133 @@
-# Subscription Management System — Delivery Plan
+# Brightloop — Detailed implementation and handoff plan
 
-Build a professional, working Brightloop subscription platform from the supplied Subscription_Management_System.pdf. Prioritize fast delivery, complete core workflows, and simple engineering.
+## Goal and decisions
 
-## Ownership
+Implement the supplied Subscription_Management_System.pdf as a professional, self-hosted application. Mathew handles the majority of implementation and final integration. Do not estimate build time or promise a completion date.
 
-Effort split is a planning estimate, not a measured workload: Mathew ~70%, Shaheem ~15%, Alfred ~15%.
+**Final stack: Go backend, PostgreSQL database, TypeScript/React with Next.js frontend.** This supersedes the earlier Supabase/Node backend proposal. No hosted database, auth, payment, email or other business API is required. Local open-source packages are implementation dependencies, not hosted backend substitutes.
 
-| Person | Owns | Deliverable / boundary |
+| Decision | Why it fits this project | Alternative deferred |
 | --- | --- | --- |
-| **Mathew — technical lead** | Scaffold, shared contracts, database/migrations, authentication and permissions, ALL backend/domain logic, recurring billing, taxes/discounts, payments, reports, integrations, final wiring, merges, deployment preparation, and testing when requested | Complete working system; owns API routes, server code, schema, shared types, dependencies/configuration, and all final integrations |
-| **Shaheem — admin/staff UI** | App shell and design components; product/variant and plan forms; quotation/subscription screens; admin staff/tax/discount settings screens | Responsive UI connected through Mathew's supplied client interfaces; no billing calculations, schema changes, or backend/auth implementation |
-| **Alfred — customer/finance UI** | Login/signup/reset screens, customer portal, invoice/detail/print and payment-entry screens, dashboard/filter/chart views | Responsive UI using Mathew's interfaces; no permission enforcement, payment settlement logic, or report calculations |
+| Go `net/http` service | Compiled service, explicit concurrency, bounded connection pool and a separate worker using the same domain code | A separate Python/Node backend would add no needed capability; Rust adds complexity without a measured need |
+| Self-hosted PostgreSQL + pgx | SQL constraints, transactions, row locks, numeric money and indexed reporting | In-memory dictionaries lose state; Redis is unnecessary for the initial workload |
+| TypeScript + React/Next.js | Shared typed API contracts for two UI contributors; same-origin `/api` proxy | No frontend business logic or direct database calls |
+| App-owned auth | Argon2id password hashing, database-backed opaque sessions, reset tokens and server permissions are visible in the repository | Hosted identity and homemade cryptographic algorithms |
+| PostgreSQL outbox + SMTP | Durable email intent with bounded retries; local Mailpit development inbox | Third-party email API or in-process fire-and-forget events |
+| Plain CSS/component primitives initially | Immediate shared UI foundation with no design-library setup dependency | Add a UI package only if Mathew approves the actual need |
 
-Shaheem owns shared visual components; Mathew owns shared interfaces. Alfred reuses the shell/components. Helpers may start with typed fixtures isolated from production; Mathew replaces fixtures during integration. Do not duplicate backend logic in either UI workstream.
+Language choice does not prove throughput. The under-two-second requirement must be measured later when Mathew requests it.
 
-## Architecture and decisions
+## Source interpretation
 
-- Proposed baseline: Next.js App Router + TypeScript, Tailwind + shadcn/ui, Supabase Postgres + Auth. One application, one database, one lockfile; pin compatible versions during scaffolding.
-- Use thin route handlers, small domain services, shared validation/DTOs, and explicit state transitions. Use database transactions/functions for billing and payment writes spanning tables.
-- Use a small email adapter for reset/invoice delivery; configure real email delivery through Mathew. Use browser print styles for printable invoices.
-- Use Supabase Cron for a persisted due-billing job; provide a protected manual run action using the same logic. Billing must not depend on a browser being open.
-- Do not add microservices, CQRS, event sourcing, generic repositories, queues, custom auth, or a payment gateway for this first delivery. The brief requires recording payments; actual automated charging is deferred.
-- Working assumptions: one Brightloop business, one configurable currency, manual payment entry, no proration or refunds in this release. Customer changes take effect at the next billing boundary. Tax rules are configurable demonstration rules, not a claim of statutory compliance.
+The PDF is the functional specification. The second transcript is a small Python, in-memory CLI example, not a complete billing system. Retain its create/cancel/renew/list-active operations and modularity. Correct its missing start-date check, cancelled-renewal behavior, inheritance description and incomplete concurrency protection. A runtime/GIL or singleton is not cross-process transaction protection. Apply the two skills under `.agents/skills/` to make these decisions consistently.
 
-## Build order
+## Ownership and branches
 
-| Stage | Mathew (main work) | Shaheem | Alfred |
-| --- | --- | --- | --- |
-| 1. Foundation | Scaffold; define schema, roles, DTOs and route contracts; configure auth; publish a working shell/API skeleton | Establish typography, spacing, navigation, reusable tables/forms/status badges | Implement auth and portal layouts using agreed components |
-| 2. First complete flow | Product/plan/customer services; quotation templates; subscription lifecycle; first invoice; partial/full payments | Catalog, plan, quote and subscription CRUD/status screens | Invoice list/detail/print and payment-entry views; customer own-record views |
-| 3. Remaining requirements | Recurrence/catch-up; pause/renew/close policy; taxes/discount limits; invoice email; staff management; aggregate reports | Staff/tax/discount settings and lifecycle controls | Dashboard, filters, charts, overdue views; portal lifecycle controls |
-| 4. Integration | Wire all real APIs, scheduler and email; resolve contracts/conflicts; remove production fixtures; prepare environment/deployment | Finish responsive states and fix assigned UI defects | Finish portal/finance states and fix assigned UI defects |
-| 5. When Mathew requests | Mathew leads manual acceptance, automated tests if requested, performance measurement and release decision | Fix assigned defects | Fix assigned defects |
+| Owner | Work | Branch |
+| --- | --- | --- |
+| **Mathew — majority owner** | Go API, SQL/migrations, auth/roles, domain logic, recurring billing, discounts/taxes, invoices/payments/reports, worker/email, shared DTO/client contracts, infrastructure, integration, final merges and testing when requested | `feat/mathew-core` |
+| **Shaheem** | Shared UI shell/primitives and complete admin/staff catalog, plan, quotation, subscription and settings workflows | `feat/shaheem-admin-ui` |
+| **Alfred** | Auth presentation, customer portal, invoice/print/payment screens and finance dashboard/filter workflows | `feat/alfred-portal-finance-ui` |
 
-Merge small complete slices early. Do not wait for every UI screen before integrating the first subscription → invoice → payment flow. Stages are sequencing, not a promised timeline.
+Read `shaheem.md` or `alfred.md` for detailed tasks and path ownership. Each contributor works on a separate branch/clone or worktree. Mathew alone merges to main. Push the unblocking foundation to main first; create collaborator branches from that commit. Do not make teammates wait for the remaining polish or production deployment.
 
-## Core requirements and engineering rules
+## Dependency-first delivery
 
-- **Accounts and roles:** unique normalized email; password length **at least 9**, uppercase, lowercase and special character; emailed password reset. Admin manages all configuration and creates staff. Staff manage customer operations, subscriptions, invoices, payments and reports, but cannot create staff or change admin rules. Customers access only their own subscriptions/invoices and permitted lifecycle actions. Enforce roles/ownership server-side and with RLS; never trust client-provided roles.
-- **Catalog/plans:** product name/type/sale price/cost/notes; priced variants (including the example Odoo +560); daily/weekly/monthly/yearly cadence, minimum quantity, availability dates, and per-plan auto-close/early-close/pause/renew policies. Do not expose product costs to customers.
-- **Quotes/subscriptions:** reusable quotation templates with plan/product lines and validity days; unique subscription number, customer, dates, payment terms and priced/taxed lines. Enforce Draft → Quotation → Confirmed → Active → Closed. Track pause separately so the required lifecycle remains intact; reject invalid transitions.
-- **Billing:** invoices snapshot customer details, lines, prices, tax/discount values and totals. Support Draft → Confirmed → Paid, plus explicit Cancelled state; confirm/cancel/send/print actions. Confirmed invoices are immutable except settlement/status; disallow cancelling paid invoices without a future reversal workflow.
-- **No duplicate/skipped periods:** unique invoice key on subscription + period start/end; transactionally lock/recheck the due subscription, create invoice and advance next-billing date together. Repeated/concurrent/manual job runs must be idempotent. Catch up missed periods in bounded batches and expose failures for retry.
-- **Calendar policy:** persist billing anchor and timezone; monthly/yearly recurrence uses calendar dates with end-of-month clamping. Pause creates no invoices while paused; resume starts a new unprorated period. Reject new subscriptions outside plan availability. Record these defaults visibly where relevant.
-- **Taxes/discounts:** calculate on server with decimal money, explicit rounding and nonnegative totals. Apply eligible discounts before tax; allocate subscription-wide discounts across lines before calculating their taxes. Support fixed/percentage, purchase/quantity thresholds, start/end dates, product/subscription scope and usage caps. Default to one eligible discount per invoice (largest valid saving, deterministic tie-break). Consume usage once per generated invoice inside its transaction, never on job retries; preserve the applied rule snapshot.
-- **Payments:** invoice-linked method/amount/date/note, partial payments and outstanding balance; positive amounts only, reject overpayment for this scope. Use a unique request key to prevent duplicate submissions, lock the invoice on payment entry, and mark Paid only when settled.
-- **Reports/performance:** active subscriptions, billed totals, collected payments, outstanding amounts and overdue invoices with date/status/customer filters. Label billed vs collected amounts distinctly; do not imply formal revenue recognition. Paginate lists, index customer/status/due dates and billing keys, aggregate in SQL, avoid N+1 queries. **Under two seconds with thousands of subscriptions is a target, not a verified result**; Mathew measures it when he requests performance work.
+### 1. Mathew's unblocking foundation — implemented in this delivery
 
-Minimal schema: profiles/roles, customers, products, variants, plans, quotation_templates/lines, subscriptions/lines, tax_rules, discounts/scopes/usages, invoices/lines, payments, and billing_runs. Use foreign keys, unique document numbers and appropriate constraints. Snapshot issued financial records so later catalog edits do not change history.
+- Runnable Next frontend and Go service structure, pinned dependencies and lockfiles.
+- Self-hosted PostgreSQL migration, local Compose services and environment template.
+- Shared TypeScript DTOs/validation hints and typed browser client with a consistent API envelope.
+- Auth signup/login/logout/me/reset endpoints; admin bootstrap CLI and admin-only staff creation.
+- Catalog/configuration CRUD, quotation templates, subscriptions and lifecycle transitions.
+- Invoice generation worker/manual staff trigger, invoice transitions, payment recording, report queries and SMTP outbox worker.
+- Base shared UI components, login/reset forms, live-data list/detail/report screens for teammates to extend.
+- Both repo-local skills and explicit branch/ownership policies.
 
-## Professional UI
+These implementation files unblock UI development. The database migration, Compose deployment and end-to-end runtime behavior have not been exercised in this environment; do not describe them as verified. No automated tests or test infrastructure are included.
 
-Use a restrained SaaS workspace: consistent sidebar/header, readable tables, clear status badges, purposeful dashboard cards, responsive layouts and accessible labelled forms. Every screen needs loading, empty, error and success states. Keep destructive actions explicit. Prefer polished core workflows over elaborate animation, landing pages, or extra features.
+### 2. Teammates develop independently
 
-## Collaboration and speed policy
+Shaheem finishes editing/status workflows and shared visual design. Alfred finishes portal lifecycle controls, invoice/payment operations and report filters/visualization. Both use the existing client and DTOs. Go implements permissions and calculations; UI displays returned values and makes allowed calls.
 
-- Mathew establishes shared contracts first; helpers work on `feat/shaheem-admin-ui` and `feat/alfred-portal-finance-ui`. Mathew uses `feat/mathew-core` and owns merges into `main`.
-- Mathew defines `src/lib/contracts/` and the client interface; helpers stay in `src/features/admin-ui/`, `src/features/portal-finance-ui/`, and their assigned page files. Shaheem owns `src/components/ui/`. Coordinate shared-file changes before editing.
-- **Complete development fast. Do not write or run automated tests, add test frameworks/coverage, build CI pipelines, create extra documentation/reports, or perform speculative refactors unless Mathew explicitly asks.**
-- Ordinary implementation work—validation, authorization, migrations, error handling and requested UI states—is required, not optional test work. A build/type-check for immediate integration errors is allowed; avoid repetitive checks. Formal acceptance, browser test passes and load tests wait for Mathew's instruction.
-- Report shipped work, changed interfaces, blockers and unverified behavior briefly. Never claim the app was tested when testing was deferred.
+If an API is insufficient, report the exact endpoint, requested shape and affected screen to Mathew. Do not create a competing server or invent a second DTO. Mathew makes additive contract changes and publishes them to main before dependent work continues.
 
-Source: user-supplied Subscription_Management_System.pdf. Implementation references: [Next.js route handlers](https://nextjs.org/docs/app/getting-started/route-handlers), [Supabase Auth](https://supabase.com/docs/guides/auth/password-security), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [Cron](https://supabase.com/docs/guides/cron).
+### 3. Mathew integrates and completes operational work
+
+- Merge small UI slices; keep route ownership stable and remove any temporary layout examples before handoff.
+- Configure a local PostgreSQL instance, run migrations and bootstrap the first admin through the CLI. Do not hardcode public demo credentials.
+- Configure the operator-controlled SMTP server for real mail. Mailpit captures messages locally and does not deliver externally.
+- Review unresolved business defaults below before handling real customer money. Add changes through explicit contracts/migrations, not silent behavior changes.
+- For deployment: HTTPS, private database network, restricted database runtime role, secrets management, backups/restore procedure, worker monitoring and reverse-proxy access limits are Mathew-owned follow-up work. Compose is a local development baseline, not a hardened production deployment.
+- Only when Mathew asks: manual acceptance, security/concurrency checks, automated tests, realistic data/performance checks and final release approval. Do not report these as completed from compile success.
+
+## API contract for both collaborators
+
+`src/lib/contracts/index.ts` contains data shapes and client validation hints. `src/lib/client.ts` is the only browser API interface. Go performs authoritative validation. Amounts/rates are strings; dates are `YYYY-MM-DD`; IDs are UUID strings. Responses are `{data, request_id}` or `{error:{code,message}, request_id}`. Lists return `{items,page,page_size,has_more}`; page size defaults to 25 and is capped at 100. Same-origin cookies carry sessions; clients must not store session tokens in localStorage.
+
+| Capability | Method/path | Client call |
+| --- | --- | --- |
+| Account/session | POST `/api/auth/signup`, `/login`, `/logout`; GET `/api/auth/me` | `signup`, `login`, `logout`, `me` |
+| Reset | POST `/api/auth/forgot-password`, `/reset-password` | `forgotPassword`, `resetPassword` |
+| Catalog/configuration | GET/POST `/api/{resource}`; PUT `/api/{resource}/{id}` | `list`, `create`, `update` |
+| Staff | GET/POST `/api/staff` | `staff`, `createStaff` |
+| Subscriptions | GET/POST `/api/subscriptions`; GET `/{id}` | `subscriptions`, `createSubscription`, `subscription` |
+| Lifecycle | POST `/api/subscriptions/{id}/transition` | `transition` |
+| Invoices | GET `/api/invoices`; GET `/{id}`; POST `/{id}/confirm`, `/cancel`, `/send` | `invoices`, `invoice`, `invoiceAction` |
+| Payments | POST `/api/payments` | `recordPayment` |
+| Reports | GET `/api/reports?from=&to=&customer_id=` | `report` |
+| Billing | POST `/api/billing/run` | `runBilling` |
+
+Resources: `products`, `variants`, `plans`, `taxes`, `discounts`, `customers`, `quotation-templates`. Updates replace the complete editable resource payload, not a partial patch. No destructive delete endpoint is planned; archive products instead. Staff may read configuration to prepare quotes, but only admins change catalog/tax/discount/plan rules. Customers cannot call catalog/staff/report/admin endpoints; their subscription/invoice requests are scoped to their linked customer record.
+
+## Data and transaction design
+
+- Tables: users, sessions, password resets, rate limits, customers, products, variants, plans, taxes, discounts, quotation templates, subscriptions/lines, invoices/lines, payments, audit events, outbox and schema migrations.
+- Private PostgreSQL is accessed only by Go. No Supabase/public REST database or browser SQL access. Backend request authorization is the application boundary; deployment must use private network access and a restricted runtime role.
+- A subscription stores a plan-policy snapshot plus product/variant prices and tax rates. Invoice generation snapshots customer/financial values. Later configuration changes affect new agreements, not historical invoices.
+- Billing locks one due subscription, computes one period, inserts invoice/lines, consumes a discount and advances the cursor in one transaction. Unique subscription/period-start keys prevent duplicate billing. Workers skip locked rows and use bounded catch-up batches; failures set `billing_error` and a delayed retry.
+- Payments lock invoices, reject overpayment and compare reused request keys with the original payload. Mark Paid only at zero remaining balance; zero-total invoices become Paid on confirmation.
+- Outbox email enqueue is transactional. Worker locks messages, retries with backoff up to eight attempts, and clears body content after delivery. SMTP has at-least-once semantics; a crash after acceptance can duplicate an email. Stable Message-ID helps identification, not a delivery guarantee. Exhausted rows require operator review and deliberate requeue.
+
+## Explicit business defaults
+
+These are implementation choices where the brief is underspecified; they are not claims about the transcript.
+
+1. One Brightloop business and one configured currency; all billing dates use UTC. Multi-tenant hosting and multi-currency conversion are out of scope.
+2. Plan price is a recurring base fee **in addition to** product/variant line prices. Set plan price to zero for line-only pricing. The base fee is tax-free in the baseline; product taxes are applied per line. Change this interpretation explicitly if the business needs inclusive plan pricing/base-fee tax.
+3. Billing periods are `[start,end)`. Monthly/yearly recurrence clamps to month end while retaining the anchor. The final shortened period is billed in full; no proration/refunds in the baseline.
+4. Persist Draft → Quotation → Confirmed → Active → Closed; pause is a separate flag. Future start dates never bill early. Active-for-reporting requires `start <= today < end`, not paused. Expired, non-auto-close agreements remain persisted Active but are not counted as currently active.
+5. Pause/early close requires due invoices already processed. Resume preserves prepaid coverage, or starts a new period at resume when the old period has ended. Renew only nonexpired Active agreements with permission and a strictly later end date; never revive cancelled agreements. Paused agreements may be extended without resuming.
+6. One eligible discount per invoice: largest saving, UUID ordering for ties. Minimum purchase/quantity refer to the subscription invoice before discount; a product scope limits which lines receive savings. Eligibility is evaluated at period start, even during catch-up. Caps are consumed on invoice generation; cancelled invoices do not restore usage automatically.
+7. Apply discounts before tax and distribute cent rounding across eligible lines. Product tax values are configurable demo rules, not statutory tax advice.
+8. Billing generates draft invoices for staff confirmation. Payment terms run from invoice issue date. Record positive manual payments; no external card charging, refunds or payment reversal workflow.
+9. Invoice send queues one email per invoice. Queue success is not delivery success. Customers without a linked account need to sign up/be linked before portal use; no anonymous invoice links.
+10. Billed/collected report values use the date range; outstanding/overdue and active-subscription counts are current snapshots. Do not label these as recognized accounting revenue or MRR.
+
+## Local setup and development
+
+Install Docker Compose and Node 24+. For native backend development, use Go 1.27.3 (the module requires at least Go 1.26). Copy `.env.example` to `.env` for local values. Defaults are local-only.
+
+```sh
+docker compose up --build -d
+# In another terminal: use your own chosen local credentials, not committed values.
+docker compose run --rm -e ADMIN_EMAIL -e ADMIN_PASSWORD api create-admin
+```
+
+Set `ADMIN_EMAIL`/`ADMIN_PASSWORD` in that terminal before running the bootstrap command. Existing accounts are not overwritten. Open `http://localhost:3000`; inspect local reset/invoice messages at `http://localhost:8025`. Only localhost ports are published. Never expose these development defaults publicly.
+
+For fast frontend iteration, run only the supporting services and use the frontend dev server:
+
+```sh
+docker compose up --build -d postgres mailpit migrate api worker
+npm ci
+npm run dev
+```
+
+For a native Go service, export the variables from `.env.example` with real local values; Go does not automatically load `.env`. From `backend/`: `go run ./cmd/server migrate`, `go run ./cmd/server create-admin`, `go run ./cmd/server serve`, and in a separate terminal `go run ./cmd/server worker`. The frontend proxies `/api` to `BACKEND_URL`.
+
+## Authorized verification
+
+Allowed: `go build ./...` from backend, `npm run typecheck`, `npm run build`, code/contract inspection and skill-format validation. Not authorized by default: tests, browser test passes, benchmarks, load tests, test tooling or CI. Maintain a clear distinction between implemented, compiled and runtime-verified.
+
+References: supplied PDF and transcripts; [Go concurrency](https://go.dev/doc/effective_go#concurrency), [pgx pool](https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool), [Argon2id](https://pkg.go.dev/golang.org/x/crypto/argon2), [PostgreSQL locks](https://www.postgresql.org/docs/current/explicit-locking.html).

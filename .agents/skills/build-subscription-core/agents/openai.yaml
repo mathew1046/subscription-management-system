@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build Subscription Core"
+  short_description: "Implement durable self-hosted subscription billing"
+  default_prompt: "Use $build-subscription-core and $choose-backend-patterns to implement this subscription feature with explicit state, authorization, and database transactions."
