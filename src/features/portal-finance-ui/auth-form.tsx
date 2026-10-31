@@ -73,7 +73,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       }
       if (mode === 'signup') {
         await api.signup(registration.parse({ name: String(fields.get('name') || ''), email, password }));
-        setMessage('Account created. Sign in to continue. Staff must link your account to your customer record before agreements appear.');
+        setMessage('Account created. Sign in to continue. Your agreements will appear when staff create them for your customer record.');
       } else if (mode === 'forgot') {
         await api.forgotPassword(resetRequest.parse({ email }).email);
         setMessage('If an account exists for this email address, a reset link has been queued for email delivery. Check your inbox and spam folder. Queueing does not guarantee delivery.');

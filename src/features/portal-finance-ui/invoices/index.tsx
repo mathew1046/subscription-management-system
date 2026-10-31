@@ -7,6 +7,7 @@ import {api} from '@/lib/client';
 import {date, id as uuid, type Invoice, type InvoiceDetail, type ListParams, type Page} from '@/lib/contracts';
 import {Button, ConfirmDialog, Field, Notice, Panel, Select, Status} from '@/components/ui';
 import {PortalGate, usePortalSession} from '@/features/portal-finance-ui/shared';
+import {CustomerFilter} from '../finance/customer-filter';
 import {ManualPayment} from './manual-payment';
 import {compareMoney, emailMessage, errorMessage, invoiceStatuses, isOverdue, methods, SignInRecovery} from './helpers';
 
@@ -25,6 +26,7 @@ function InvoiceList() {
   const rawPage = search.get('page') || '1';
   const page = /^\d+$/.test(rawPage) && Number.isSafeInteger(Number(rawPage)) && Number(rawPage) > 0 ? Number(rawPage) : 1;
   const [filters, setFilters] = useState({status, from, to, customer});
+  const [selectedCustomer, setSelectedCustomer] = useState({id: '', name: ''});
   const [result, setResult] = useState<Page<Invoice> | null>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<unknown>(null);
@@ -62,7 +64,7 @@ function InvoiceList() {
       <Select label="Status" value={filters.status} onChange={event => setFilters({...filters, status: event.target.value})}>{invoiceStatuses.map(value => <option key={value} value={value}>{value || 'All statuses'}</option>)}</Select>
       <Field label="Issued from (UTC)" type="date" value={filters.from} onChange={event => setFilters({...filters, from: event.target.value})}/>
       <Field label="Issued through (UTC)" type="date" value={filters.to} min={filters.from || undefined} onChange={event => setFilters({...filters, to: event.target.value})}/>
-      {internal && <Field label="Customer ID (optional)" value={filters.customer} placeholder="Customer UUID" onChange={event => setFilters({...filters, customer: event.target.value.trim()})}/>}
+      {internal && <CustomerFilter value={{id: filters.customer, name: selectedCustomer.id === filters.customer ? selectedCustomer.name : 'Selected customer'}} onChange={value => {setSelectedCustomer(value); setFilters({...filters, customer: value.id});}}/>}
       <Button type="submit">Apply filters</Button><Button type="button" variant="secondary" onClick={() => {setFilters({status: '', from: '', to: '', customer: ''}); setValidation(''); navigate({status: '', from: '', to: '', customer: ''});}}>Clear filters</Button>
     </form>
     {validation && <Notice error>{validation}</Notice>}
