@@ -1,4 +1,9 @@
 node_modules/
+/.impeccable/mocks/
+/.impeccable/questions/
+/.impeccable/options.json
+/.impeccable/admin-contract.md
+/.impeccable/review/
 .next/
 .env*
 !.env.example
