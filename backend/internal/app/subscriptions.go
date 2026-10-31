@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -20,7 +21,7 @@ type SubscriptionInput struct {
 	Start      string      `json:"start_date"`
 	End        string      `json:"end_date"`
 	QuoteUntil string      `json:"quote_valid_until"`
-	Terms      int         `json:"payment_terms_days"`
+	Terms      *int        `json:"payment_terms_days"`
 	Lines      []LineInput `json:"lines"`
 }
 type LifecycleInput struct {
@@ -95,6 +96,7 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 		customer := r.URL.Query().Get("customer_id")
 		if customer != "" {
 			validID(customer)
+			customer = strings.ToLower(customer)
 		}
 		status := r.URL.Query().Get("status")
 		switch status {
@@ -106,12 +108,16 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 	}
 	internal(u)
 	v := body[SubscriptionInput](w, r)
+	terms := 14
+	if v.Terms != nil {
+		terms = *v.Terms
+	}
 	validID(v.CustomerID)
 	validID(v.PlanID)
 	parseDate(v.Start)
 	parseDate(v.End)
 	parseDate(v.QuoteUntil)
-	require(v.End > v.Start && v.Terms >= 0 && v.Terms <= 365, 400, "VALIDATION", "Invalid subscription dates or payment terms.")
+	require(v.End > v.Start && terms >= 0 && terms <= 365, 400, "VALIDATION", "Invalid subscription dates or payment terms.")
 	now := today()
 	require(v.End > now && v.QuoteUntil >= now, 400, "INVALID_DATE", "Subscription and quotation must not be expired.")
 	validateLines(v.Lines)
@@ -140,7 +146,7 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 		require(subtotal.LessThanOrEqual(limit) && total.LessThanOrEqual(limit), 400, "VALIDATION", "Recurring amount exceeds the supported billing limit.")
 		snap, e := json.Marshal(plan)
 		check(e)
-		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9,$3) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, v.Terms, parseDate(v.Start).Day(), a.Currency, snap)
+		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9,$3) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, terms, parseDate(v.Start).Day(), a.Currency, snap)
 		for i, line := range v.Lines {
 			resolved := resolvedLines[i]
 			exec(ctx, tx, `INSERT INTO subscription_lines(subscription_id,product_id,variant_id,description,quantity,unit_price,tax_rate) VALUES($1,$2,$3,$4,$5,$6,$7)`, s["id"], line.ProductID, line.VariantID, resolved["description"], line.Quantity, resolved["unit_price"], resolved["tax_rate"])
