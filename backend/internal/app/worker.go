@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-func smtpSend(recipient, subject, body, id string) error {
+func smtpSend(ctx context.Context, recipient, subject, body, id string) error {
 	host, port := os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT")
 	if host == "" {
 		return fmt.Errorf("SMTP not configured")
@@ -38,12 +38,22 @@ func smtpSend(recipient, subject, body, id string) error {
 		return fmt.Errorf("invalid mail headers")
 	}
 	address := net.JoinHostPort(host, port)
-	connection, err := net.DialTimeout("tcp", address, 5*time.Second)
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+	connection, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return err
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(8 * time.Second))
+	socket := connection
+	stop := context.AfterFunc(ctx, func() { _ = socket.Close() })
+	defer stop()
+	deadline := time.Now().Add(8 * time.Second)
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+	}
+	if err = connection.SetDeadline(deadline); err != nil {
+		return err
+	}
 	secure := os.Getenv("SMTP_SECURE") == "true"
 	if secure {
 		connection = tls.Client(connection, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
@@ -92,7 +102,10 @@ func smtpSend(recipient, subject, body, id string) error {
 	if err = w.Close(); err != nil {
 		return err
 	}
-	return client.Quit()
+	// DATA acceptance is success even if the peer closes during QUIT.
+	// Retrying that case would deliberately resend an accepted message.
+	_ = client.Quit()
+	return nil
 }
 func (a *App) deliver(ctx context.Context) bool {
 	return a.tx(ctx, func(tx pgx.Tx) any {
@@ -101,7 +114,7 @@ func (a *App) deliver(ctx context.Context) bool {
 			return false
 		}
 		m := pending[0]
-		err := smtpSend(str(m["recipient"]), str(m["subject"]), str(m["body"]), str(m["id"]))
+		err := smtpSend(ctx, str(m["recipient"]), str(m["subject"]), str(m["body"]), str(m["id"]))
 		if err != nil {
 			exec(ctx, tx, "UPDATE outbox SET attempts=attempts+1,last_error='SMTP delivery failed; inspect configuration',available_at=now()+interval '1 minute'*power(2,LEAST(attempts,6)) WHERE id=$1", m["id"])
 			slog.Warn("email delivery deferred", "outbox_id", m["id"])
@@ -111,28 +124,38 @@ func (a *App) deliver(ctx context.Context) bool {
 		return true
 	}).(bool)
 }
+func workerTask(ctx context.Context, name string, timeout time.Duration, fn func(context.Context)) {
+	defer func() {
+		if p := recover(); p != nil {
+			slog.Error("worker task failed", "task", name, "kind", fmt.Sprintf("%T", p))
+		}
+	}()
+	job, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	fn(job)
+}
+
 func (a *App) Work(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
-		func() {
-			defer func() {
-				if p := recover(); p != nil {
-					slog.Error("worker cycle failed", "kind", fmt.Sprintf("%T", p))
-				}
-			}()
-			cycle, cancel := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel()
-			a.Billing(cycle)
-			for i := 0; i < 5; i++ {
-				if !a.deliver(cycle) {
-					break
-				}
+		if ctx.Err() != nil {
+			return
+		}
+		// A failed billing batch must not starve reset/invoice email or cleanup.
+		workerTask(ctx, "billing", 30*time.Second, func(job context.Context) { a.Billing(job) })
+		for i := 0; i < 5 && ctx.Err() == nil; i++ {
+			pending := false
+			workerTask(ctx, "outbox", 12*time.Second, func(job context.Context) { pending = a.deliver(job) })
+			if !pending {
+				break
 			}
-			exec(cycle, a.DB, "DELETE FROM sessions WHERE expires_at<now()")
-			exec(cycle, a.DB, "DELETE FROM password_resets WHERE expires_at<now()")
-			exec(cycle, a.DB, "DELETE FROM rate_limits WHERE expires_at<now()")
-		}()
+		}
+		workerTask(ctx, "cleanup", 10*time.Second, func(job context.Context) {
+			exec(job, a.DB, "DELETE FROM sessions WHERE expires_at<now()")
+			exec(job, a.DB, "DELETE FROM password_resets WHERE expires_at<now()")
+			exec(job, a.DB, "DELETE FROM rate_limits WHERE expires_at<now()")
+		})
 		select {
 		case <-ctx.Done():
 			return

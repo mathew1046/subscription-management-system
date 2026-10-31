@@ -44,7 +44,17 @@ Read `shaheem.md` or `alfred.md` for detailed tasks and path ownership. Each con
 - Base shared UI components, login/reset forms, live-data list/detail/report screens for teammates to extend.
 - Both repo-local skills and explicit branch/ownership policies.
 
-These implementation files unblock UI development. The database migration, Compose deployment and end-to-end runtime behavior have not been exercised in this environment; do not describe them as verified. No automated tests or test infrastructure are included.
+These implementation files unblock UI development. At the initial foundation handoff, migrations, Compose deployment and end-to-end runtime behavior had not been exercised. Current implementation and verification status is recorded below. No automated tests or test infrastructure are included.
+
+### Mathew core completion — 2026-10-31
+
+- Reviewed against the supplied PDF using three isolated Mathew worktrees; integrated auth/catalog, subscription and billing/finance fixes into `feat/mathew-core`. Kept direct SQL/domain functions; no new architecture pattern or external service was justified.
+- Closed the password-reset/login race, strengthened catalog/template validation and added explicit admin-only customer-account linking. Customer input accepts optional `user_id`; omission preserves an existing link and null unlinks it. Moving an account away from customer history is rejected.
+- Hardened catalog snapshots, quotation validity, recurring amount limits, lifecycle guards, payment-key concurrency, exact rounding, invoice cancellation/email coordination and report aggregation. Added indexed child lookups and full-date billing anchors through numbered migrations, preserving weekly/monthly/yearly recurrence after a shortened final period is renewed.
+- Subscription detail now returns server-calculated line `subtotal`, `tax_amount`, `total` and `quote_totals` before invoice-time discounts. Shared contracts expose the existing plan snapshot and the new billing anchor. Staff invoice detail and send responses expose email state (`not_queued`, `queued`, `retrying`, `failed`, `sent`); sent means SMTP acceptance, not guaranteed inbox delivery. Existing response fields are retained.
+- Worker tasks have independent time budgets; billing failure cannot prevent outbox/cleanup work. SMTP follows cancellation, and a QUIT failure after DATA acceptance no longer intentionally resends an accepted message. UTC database sessions and configuration validation are enforced; health checks include database availability.
+- Local PostgreSQL and Mailpit services started; migrations 001–003 applied successfully. Go compilation, TypeScript checking and the frontend production build passed. No tests, browser/manual acceptance passes or performance measurements ran. These checks do not establish runtime billing correctness or the two-second target.
+- Still requires Mathew's chosen admin credentials, operator SMTP details for actual delivery, teammate UI integration when available and explicit approval for acceptance/security/concurrency/performance verification. No public deployment or changes to teammates' owned files.
 
 ### 2. Teammates develop independently
 
@@ -101,7 +111,7 @@ These are implementation choices where the brief is underspecified; they are not
 6. One eligible discount per invoice: largest saving, UUID ordering for ties. Minimum purchase/quantity refer to the subscription invoice before discount; a product scope limits which lines receive savings. Eligibility is evaluated at period start, even during catch-up. Caps are consumed on invoice generation; cancelled invoices do not restore usage automatically.
 7. Apply discounts before tax and distribute cent rounding across eligible lines. Product tax values are configurable demo rules, not statutory tax advice.
 8. Billing generates draft invoices for staff confirmation. Payment terms run from invoice issue date. Record positive manual payments; no external card charging, refunds or payment reversal workflow.
-9. Invoice send queues one email per invoice. Queue success is not delivery success. Customers without a linked account need to sign up/be linked before portal use; no anonymous invoice links.
+9. Invoice send queues one email per invoice. Queue success is not delivery success. Staff can inspect delivery state in invoice detail. Customers without a linked account need to sign up/be linked before portal use; no anonymous invoice links.
 10. Billed/collected report values use the date range; outstanding/overdue and active-subscription counts are current snapshots. Do not label these as recognized accounting revenue or MRR.
 
 ## Local setup and development
@@ -125,6 +135,8 @@ npm run dev
 ```
 
 For a native Go service, export the variables from `.env.example` with real local values; Go does not automatically load `.env`. From `backend/`: `go run ./cmd/server migrate`, `go run ./cmd/server create-admin`, `go run ./cmd/server serve`, and in a separate terminal `go run ./cmd/server worker`. The frontend proxies `/api` to `BACKEND_URL`.
+
+Compose uses `COMPOSE_SMTP_HOST`/`COMPOSE_SMTP_PORT` (default `mailpit:1025`), while native Go uses `SMTP_HOST`/`SMTP_PORT` (default example `127.0.0.1:1025`). Both use `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM`. Mailpit is local capture only; use an operator-controlled TLS SMTP server for real delivery.
 
 ## Authorized verification
 

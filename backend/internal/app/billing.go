@@ -75,7 +75,7 @@ func (a *App) billOne(ctx context.Context, recordID string) (processed bool, err
 		plan := s["plan_snapshot"].(map[string]any)
 		start := str(s["next_billing_date"])
 		require(start >= str(s["start_date"]), 409, "BILLING_CURSOR", "Billing cursor precedes subscription start.")
-		end := nextPeriod(start, str(plan["cadence"]), integer(s["anchor_day"]))
+		end := nextPeriod(start, str(plan["cadence"]), str(s["billing_anchor"]))
 		if end > str(s["end_date"]) {
 			end = str(s["end_date"])
 		}
@@ -164,7 +164,7 @@ func (a *App) Billing(ctx context.Context) Object {
 			SELECT id FROM subscriptions WHERE status='Active' AND end_date<=$1::date
 			AND (paused=true OR next_billing_date>=end_date) AND (plan_snapshot->>'auto_close')::boolean=true
 			ORDER BY end_date,id LIMIT 100 FOR UPDATE SKIP LOCKED
-		) UPDATE subscriptions s SET status='Closed',close_reason='expired' FROM expired WHERE s.id=expired.id`, today())
+		) UPDATE subscriptions s SET status='Closed',paused=false,close_reason='expired' FROM expired WHERE s.id=expired.id`, today())
 	}
 	return Object{"processed": processed, "failed": failed}
 }

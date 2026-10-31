@@ -73,7 +73,21 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 		if recordID != "" {
 			return a.tx(ctx, func(tx pgx.Tx) any {
 				s := owned(ctx, tx, "subscriptions", recordID, u, false)
-				s["lines"] = rows(ctx, tx, "SELECT * FROM subscription_lines WHERE subscription_id=$1 ORDER BY id", recordID)
+				lines := rows(ctx, tx, "SELECT * FROM subscription_lines WHERE subscription_id=$1 ORDER BY id", recordID)
+				priced := make([]pricedLine, 0, len(lines)+1)
+				for _, line := range lines {
+					priced = append(priced, pricedLine{Quantity: integer(line["quantity"]), Unit: number(line["unit_price"]), Tax: number(line["tax_rate"])})
+				}
+				plan := s["plan_snapshot"].(map[string]any)
+				priced = append(priced, pricedLine{Quantity: 1, Unit: number(plan["price"]), Tax: number("0")})
+				computed, subtotal, _, tax, total := calculate(priced, nil)
+				for n, line := range lines {
+					line["subtotal"] = computed[n].Base.StringFixed(2)
+					line["tax_amount"] = computed[n].TaxAmount.StringFixed(2)
+					line["total"] = computed[n].Total.StringFixed(2)
+				}
+				s["lines"] = lines
+				s["quote_totals"] = Object{"subtotal": subtotal.StringFixed(2), "tax_total": tax.StringFixed(2), "total": total.StringFixed(2)}
 				return s
 			})
 		}
@@ -126,7 +140,7 @@ func (a *App) subscriptions(w http.ResponseWriter, r *http.Request) any {
 		require(subtotal.LessThanOrEqual(limit) && total.LessThanOrEqual(limit), 400, "VALIDATION", "Recurring amount exceeds the supported billing limit.")
 		snap, e := json.Marshal(plan)
 		check(e)
-		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, v.Terms, parseDate(v.Start).Day(), a.Currency, snap)
+		s := one(ctx, tx, `INSERT INTO subscriptions(customer_id,plan_id,start_date,end_date,quote_valid_until,payment_terms_days,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor) VALUES($1,$2,$3,$4,$5,$6,$3,$7,$8,$9,$3) RETURNING *`, v.CustomerID, v.PlanID, v.Start, v.End, v.QuoteUntil, v.Terms, parseDate(v.Start).Day(), a.Currency, snap)
 		for i, line := range v.Lines {
 			resolved := resolvedLines[i]
 			exec(ctx, tx, `INSERT INTO subscription_lines(subscription_id,product_id,variant_id,description,quantity,unit_price,tax_rate) VALUES($1,$2,$3,$4,$5,$6,$7)`, s["id"], line.ProductID, line.VariantID, resolved["description"], line.Quantity, resolved["unit_price"], resolved["tax_rate"])
@@ -147,6 +161,7 @@ func (a *App) transition(w http.ResponseWriter, r *http.Request) any {
 		paused := truth(s["paused"])
 		end, next := str(s["end_date"]), str(s["next_billing_date"])
 		anchor := integer(s["anchor_day"])
+		billingAnchor := str(s["billing_anchor"])
 		reason := s["close_reason"]
 		now := today()
 		switch v.Action {
@@ -175,6 +190,7 @@ func (a *App) transition(w http.ResponseWriter, r *http.Request) any {
 			if next <= now {
 				next = now
 				anchor = parseDate(next).Day()
+				billingAnchor = next
 			}
 		case "close":
 			require(status == "Active" && truth(plan["allow_close"]), 409, "INVALID_TRANSITION", "Early closure not permitted.")
@@ -193,7 +209,7 @@ func (a *App) transition(w http.ResponseWriter, r *http.Request) any {
 		default:
 			panic(fault{400, "VALIDATION", "Unknown lifecycle action."})
 		}
-		result := one(ctx, tx, "UPDATE subscriptions SET status=$1,paused=$2,end_date=$3,next_billing_date=$4,anchor_day=$5,close_reason=$6 WHERE id=$7 RETURNING *", status, paused, end, next, anchor, reason, recordID)
+		result := one(ctx, tx, "UPDATE subscriptions SET status=$1,paused=$2,end_date=$3,next_billing_date=$4,anchor_day=$5,close_reason=$6,billing_anchor=$8 WHERE id=$7 RETURNING *", status, paused, end, next, anchor, reason, recordID, billingAnchor)
 		audit(ctx, tx, u, "subscription."+v.Action, recordID)
 		return result
 	})
