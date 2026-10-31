@@ -115,7 +115,9 @@ func (a *App) auth(w http.ResponseWriter, r *http.Request) any {
 		require(action == "me", 404, "NOT_FOUND", "Unknown endpoint.")
 		return a.user(r)
 	}
-	a.rate(ctx, "auth-global", 500)
+	if action != "logout" {
+		a.rate(ctx, "auth-global", 500)
+	}
 	switch action {
 	case "signup":
 		return a.register(ctx, body[Registration](w, r), "customer")
