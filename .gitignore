@@ -1,4 +1,5 @@
 node_modules/
+.playwright-cli/
 /.impeccable/mocks/
 /.impeccable/questions/
 /.impeccable/options.json

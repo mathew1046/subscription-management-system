@@ -113,6 +113,9 @@ code { font-size: .9em; overflow-wrap: anywhere; }
 .toolbar .field { flex: 1 1 180px; max-width: 300px; margin: 0; }
 .toolbar > input, .toolbar > select { flex: 1 1 180px; width: auto; max-width: 300px; }
 .toolbar .actions { margin: 0; }
+.subscription-filters { align-items: flex-start; }
+.subscription-filters > .lookup-control { flex: 1 1 180px; max-width: 300px; margin-bottom: 0; }
+.subscription-filters > .button { align-self: center; }
 .actions, .form-actions, .dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .actions { margin: 24px 0; }
 .actions:last-child { margin-bottom: 0; }
@@ -169,6 +172,9 @@ input[type="checkbox"], input[type="radio"] { width: 17px; height: 17px; margin:
 table { width: 100%; min-width: 640px; border-collapse: collapse; text-align: left; font-variant-numeric: tabular-nums; }
 th { color: var(--muted); background: #f7f8f5; font-size: 11px; line-height: 1.5; font-weight: 600; letter-spacing: .055em; text-transform: uppercase; }
 th, td { padding: 18px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th[scope="row"] { background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; letter-spacing: normal; text-transform: none; }
+.record-reference { display: block; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.table-scroll-hint { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
 th:first-child, td:first-child { padding-left: 20px; }
 th:last-child, td:last-child { padding-right: 20px; }
 td { font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }

@@ -3,6 +3,7 @@
 import {useEffect, useRef, useState, type ComponentType, type ReactNode} from 'react';
 import {Button, ConfirmDialog, Notice, Panel} from '@/components/ui';
 import type {Page} from '@/lib/contracts';
+import {ApiError} from '@/lib/client';
 import {errorMessage} from './form-helpers';
 
 export interface Column<T> {label:string;render:(record:T)=>ReactNode}
@@ -26,6 +27,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
   const [saveError,setSaveError]=useState('');
   const [success,setSuccess]=useState('');
   const [pending,setPending]=useState(false);
+  const [uncertain,setUncertain]=useState(false);
   const [archiveRecord,setArchiveRecord]=useState<T|null>(null);
   const [archiveError,setArchiveError]=useState('');
   const locked=useRef(false);
@@ -42,7 +44,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
   useEffect(()=>{if(editor)headingRef.current?.focus()},[editor]);
 
   function openEditor(record:T|null) {
-    if(pending || !canManage) return;
+    if(pending || uncertain || !canManage) return;
     setEditor({record});setSaveError('');setSuccess('');
   }
   function closeEditor() {
@@ -50,7 +52,7 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
     setEditor(null);setSaveError('');pageHeadingRef.current?.focus();
   }
   async function save(input:Input) {
-    if(!canManage || !editor || locked.current) return;
+    if(!canManage || !editor || locked.current || uncertain) return;
     locked.current=true;setPending(true);setSaveError('');setSuccess('');
     try {
       const record=editor.record && update ? await update(editor.record.id,input) : await create(input);
@@ -58,7 +60,12 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
       setSuccess(`${record.name} ${editor.record ? 'updated' : 'created'}.`);
       setRefreshKey(key=>key+1);
       pageHeadingRef.current?.focus();
-    } catch(error) {setSaveError(errorMessage(error))}
+    } catch(error) {
+      setSaveError(errorMessage(error));
+      if(error instanceof ApiError && error.code==='UNAVAILABLE') {
+        setUncertain(true);setRefreshKey(key=>key+1);
+      }
+    }
     finally {locked.current=false;setPending(false)}
   }
   async function confirmArchive() {
@@ -74,13 +81,14 @@ export function CatalogWorkspace<T extends {id:string;name:string},Input>({title
   return <>
     <div className="page-heading">
       <div><h1 className="page-title" ref={pageHeadingRef} tabIndex={-1}>{title}</h1><p className="page-description">{description}</p></div>
-      {canManage && <Button disabled={pending || editor!==null} onClick={()=>openEditor(null)}>New {singular}</Button>}
+      {canManage && <Button disabled={pending || uncertain || editor!==null} onClick={()=>openEditor(null)}>New {singular}</Button>}
     </div>
     {!canManage && <p className="text-muted">Read-only configuration. An administrator manages these records.</p>}
     {success && <Notice>{success}</Notice>}
+    {uncertain && <Notice error>The save result is unknown. This editor is locked to prevent duplicate writes. Check the refreshed record list before reloading this page to start another save.</Notice>}
     {editor && <Panel title={`${editor.record ? 'Edit' : 'New'} ${singular}`}>
       <h3 ref={headingRef} tabIndex={-1} className="text-muted">{editor.record ? editor.record.name : `Enter ${singular} details`}</h3>
-      <Editor key={editor.record?.id || 'new'} record={editor.record} pending={pending} error={saveError} onSave={save} onCancel={closeEditor}/>
+      <fieldset disabled={uncertain}><Editor key={editor.record?.id || 'new'} record={editor.record} pending={pending} error={saveError} onSave={save} onCancel={closeEditor}/></fieldset>
     </Panel>}
     <div className="toolbar"><p className="text-muted">{title} · page {page}</p><Button variant="secondary" disabled={pending || (!data && !listError)} onClick={()=>setRefreshKey(key=>key+1)}>Refresh list</Button></div>
     {listError ? <Notice error>{listError} Your form data has not been changed. Use Refresh list to retry.</Notice> : !data ? <Notice>Loading {title.toLowerCase()}…</Notice> : <>

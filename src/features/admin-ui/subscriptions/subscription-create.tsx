@@ -30,7 +30,7 @@ export function SubscriptionCreate({templateId}: {templateId?: string}) {
   const [created, setCreated] = useState<SubscriptionDetail | null>(null);
 
   useEffect(() => {
-    if (!templateId || session.user?.role !== 'admin') return;
+    if (!templateId || !allowed) return;
     let current = true;
     setTemplateLoading(true);
     setTemplateError('');
@@ -51,7 +51,7 @@ export function SubscriptionCreate({templateId}: {templateId?: string}) {
     }
     loadTemplate().catch(reason => {if (current) setTemplateError(errorMessage(reason));}).finally(() => {if (current) setTemplateLoading(false);});
     return () => {current = false;};
-  }, [templateId, session.user?.role, templateRevision]);
+  }, [templateId, allowed, templateRevision]);
 
   async function loadCreated(subscriptionId: string) {
     const detail = await api.subscription(subscriptionId);
@@ -105,7 +105,6 @@ export function SubscriptionCreate({templateId}: {templateId?: string}) {
   if (session.loading) return <Notice>Loading your workspace…</Notice>;
   if (session.error) return <><Notice error>{session.error}</Notice><Button onClick={session.reload}>Reload session</Button></>;
   if (!allowed) return <Notice error>Administrator or staff access is required to create subscriptions.</Notice>;
-  if (templateId && session.user?.role !== 'admin') return <><Notice error>Only administrators can start subscriptions from quotation templates. You can still prepare a subscription directly.</Notice><Link className="button secondary" href="/admin/subscriptions/new">Start without a template</Link></>;
 
   if (created) return <>
     <header className="page-heading"><div><h1 className="page-title">Draft created</h1><p className="page-description">{created.number} is saved. Review its server-calculated quotation before continuing.</p></div></header>

@@ -14,7 +14,7 @@ export function CatalogScreen({resource}:{resource:Resource|'staff'}) {
   if(error)return <><Notice error>{error}</Notice><Button variant="secondary" onClick={reload}>Retry access check</Button></>;
   if(!user || user.role==='customer')return <Notice error>Administrator or staff access is required for this workspace.</Notice>;
   const canManage=user.role==='admin';
-  if((resource==='staff' || resource==='quotation-templates') && !canManage)return <Notice error>Only administrators can access {resource==='staff' ? 'staff accounts' : 'quotation templates'}.</Notice>;
+  if(resource==='staff' && !canManage)return <Notice error>Only administrators can access staff accounts.</Notice>;
 
   switch(resource) {
     case 'products':return <CatalogWorkspace key={resource} title="Products" singular="product" description="Manage the products, internal costs and sale prices used in new agreements." canManage={canManage}

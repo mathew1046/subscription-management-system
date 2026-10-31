@@ -7,6 +7,7 @@ import {api, ApiError} from '@/lib/client';
 import {date, lifecycleInput, type SubscriptionDetail} from '@/lib/contracts';
 import {Button, ConfirmDialog, Field, Notice} from '@/components/ui';
 import {useAdminSession} from '@/features/admin-ui/shared';
+import {CustomerNamesStatus, useCustomerNames} from '@/features/admin-ui/shared/customer-names';
 import {addDays, dateLabel, errorMessage, SubscriptionStatus, utcToday} from './presentation';
 import {SubscriptionQuote} from './subscription-quote';
 
@@ -37,6 +38,7 @@ export function SubscriptionDetailScreen({id}: {id: string}) {
   const [billingDueError, setBillingDueError] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
   const [billingResult, setBillingResult] = useState<{processed: number; failed: number} | null>(null);
+  const customers = useCustomerNames(allowed && subscription ? [subscription.customer_id] : []);
 
   useEffect(() => {
     if (!allowed) return;
@@ -164,8 +166,8 @@ export function SubscriptionDetailScreen({id}: {id: string}) {
       <p>Process due billing generates draft invoices for <strong>all due subscriptions</strong>, not only this agreement. It may process multiple missed periods in a bounded batch. It does not collect payments.</p>
       <Button variant="secondary" disabled={disabled} onClick={() => requestAction({action: 'billing', title: 'Process all due billing?', label: 'Process due billing', description: 'This runs a global billing batch for every due subscription, not just the agreement on this page. It may generate multiple draft invoices, consume eligible discount usage and advance billing dates. Review processed/failed counts afterwards. The original pause or close action will not be retried.'})}>Process due billing</Button>
     </section>}
-    <section className="form-section" aria-labelledby="terms-heading"><h2 id="terms-heading">Agreement terms</h2><dl className="detail-list">
-      <div><dt>Customer reference</dt><dd style={{overflowWrap: 'anywhere'}}>{subscription.customer_id}</dd></div>
+    <section className="form-section" aria-labelledby="terms-heading"><h2 id="terms-heading">Agreement terms</h2><CustomerNamesStatus lookup={customers}/><dl className="detail-list">
+      <div><dt>Customer</dt><dd>{customers.names[subscription.customer_id] || 'Customer'}<span className="record-reference">{subscription.customer_id}</span></dd></div>
       <div><dt>Start date (UTC)</dt><dd>{dateLabel(subscription.start_date)}</dd></div>
       <div><dt>End date — exclusive (UTC)</dt><dd>{dateLabel(subscription.end_date)}</dd></div>
       <div><dt>Quotation valid through (UTC)</dt><dd>{dateLabel(subscription.quote_valid_until)}</dd></div>

@@ -54,11 +54,12 @@ type LookupProps = {
   value: string;
   onChange: (value: string) => void;
   optional?: boolean;
+  emptyLabel?: string;
   disabled?: boolean;
   productId?: string;
 };
 
-export function LookupSelect({resource, label, value, onChange, optional = false, disabled = false, productId}: LookupProps) {
+export function LookupSelect({resource, label, value, onChange, optional = false, emptyLabel, disabled = false, productId}: LookupProps) {
   const [page, setPage] = useState(1);
   const [items, setItems] = useState<{id: string; name: string}[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -92,7 +93,7 @@ export function LookupSelect({resource, label, value, onChange, optional = false
   return <div className="lookup-control">
     <Select label={label} value={value} required={!optional} disabled={disabled || loading || needsProduct || !!error}
       onChange={event => onChange(event.target.value)}>
-      <option value="">{needsProduct ? 'Choose a product first' : optional ? 'None' : `Choose ${label.toLowerCase()}`}</option>
+      <option value="">{needsProduct ? 'Choose a product first' : emptyLabel || (optional ? 'None' : `Choose ${label.toLowerCase()}`)}</option>
       {value && !items.some(item => item.id === value) && <option value={value}>{names[value] || `Selected record · ${value.slice(-8)}`}</option>}
       {items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
     </Select>
