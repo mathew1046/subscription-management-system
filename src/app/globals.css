@@ -6,7 +6,7 @@
   --ink: #202523;
   --muted: #636d66;
   --line: #dfe3de;
-  --control-line: #b7bfb8;
+  --control-line: #828e85;
   --accent: #0d7c66;
   --accent-ink: #08624f;
   --accent-soft: #e9f3ed;
@@ -126,7 +126,7 @@ code { font-size: .9em; overflow-wrap: anywhere; }
 .button:active { background: #111713; }
 .button:disabled, .button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 .button.secondary { color: var(--ink); background: var(--surface); border-color: var(--control-line); }
-.button.secondary:hover { background: var(--surface-subtle); border-color: #8d988f; }
+.button.secondary:hover { background: var(--surface-subtle); border-color: #6f7f73; }
 .button.danger { color: white; background: var(--danger); }
 .button.danger:hover { background: #89231f; }
 .button.ghost { color: var(--ink); background: transparent; }
@@ -140,7 +140,7 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea { width: 100%
 select { padding-right: 30px; }
 textarea { display: block; min-height: 112px; resize: vertical; }
 input::placeholder, textarea::placeholder { color: #6d756f; opacity: 1; }
-input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: #87948a; }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: #66766b; }
 input:disabled, select:disabled, textarea:disabled { background: var(--surface-subtle); color: var(--muted); cursor: not-allowed; }
 input[readonly], textarea[readonly] { background: var(--surface-subtle); }
 input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--danger); }

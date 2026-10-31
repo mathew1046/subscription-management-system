@@ -8,7 +8,7 @@ colors:
   ink: "#202523"
   muted: "#636d66"
   line: "#dfe3de"
-  control-line: "#b7bfb8"
+  control-line: "#828e85"
   accent: "#0d7c66"
   accent-ink: "#08624f"
   accent-soft: "#e9f3ed"
@@ -230,11 +230,11 @@ The mobile drawer reuses the rail contents in a Radix Dialog. Its width is `min(
 
 ### Buttons
 
-Confident and quiet: 13px, weight 600, line-height 1.45, 8px icon gap, 10px/17px padding, a transparent 1px border and the control radius. Primary is charcoal/white (hover `#353d38`, active `#111713`). Secondary is white/ink with the control stroke (hover soft paper and `#8d988f` border). Danger is red/white (hover `#89231f`). Ghost is transparent/ink (hover soft paper). Disabled buttons use .5 opacity and a not-allowed cursor. Use clear action text, not icon-only ambiguity.
+Confident and quiet: 13px, weight 600, line-height 1.45, 8px icon gap, 10px/17px padding, a transparent 1px border and the control radius. Primary is charcoal/white (hover `#353d38`, active `#111713`). Secondary is white/ink with the control stroke (hover soft paper and `#6f7f73` border). Danger is red/white (hover `#89231f`). Ghost is transparent/ink (hover soft paper). Disabled buttons use .5 opacity and a not-allowed cursor. Use clear action text, not icon-only ambiguity.
 
 ### Fields and repeatable lines
 
-`Field`, `Select` and `Textarea` wrap native controls in visible labels. Text controls use white, the control stroke, 9px/12px padding and the control radius; selects leave 30px on the right. Textareas start at 112px high and resize vertically. Hover strengthens the stroke (`#87948a`); disabled/read-only controls use soft paper; `aria-invalid="true"` uses the danger stroke. Native checkboxes/radios are 17px and green-accented.
+`Field`, `Select` and `Textarea` wrap native controls in visible labels. Text controls use white, the control stroke (`#828e85`, 3.41:1 against white), 9px/12px padding and the control radius; selects leave 30px on the right. Textareas start at 112px high and resize vertically. Hover strengthens the stroke (`#66766b`); disabled/read-only controls use soft paper; `aria-invalid="true"` uses the danger stroke. Native checkboxes/radios are 17px and green-accented.
 
 `LookupSelect` pages choices in batches of 25, shows page/loading/error/retry states and retains selected-record labels across pages. Product-specific variants require a product first; empty matching pages remain navigable. `LineEditor` provides numbered blocks, labelled product/variant/quantity/tax fields, add/remove actions and pending disabling. No client-computed charge preview replaces saved server totals.
 
