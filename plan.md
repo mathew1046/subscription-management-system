@@ -44,7 +44,7 @@ Read `shaheem.md` or `alfred.md` for detailed tasks and path ownership. Each con
 - Base shared UI components, login/reset forms, live-data list/detail/report screens for teammates to extend.
 - Both repo-local skills and explicit branch/ownership policies.
 
-These implementation files unblock UI development. At the initial foundation handoff, migrations, Compose deployment and end-to-end runtime behavior had not been exercised. Current implementation and verification status is recorded below. No automated tests or test infrastructure are included.
+These implementation files unblock UI development. At the initial foundation handoff, migrations, Compose deployment and end-to-end runtime behavior had not been exercised and no automated tests were included. Current implementation and subsequently authorized verification are recorded below.
 
 ### Mathew core completion — 2026-10-31
 
@@ -86,7 +86,7 @@ If an API is insufficient, report the exact endpoint, requested shape and affect
 | Lifecycle | POST `/api/subscriptions/{id}/transition` | `transition` |
 | Invoices | GET `/api/invoices`; GET `/{id}`; POST `/{id}/confirm`, `/cancel`, `/send` | `invoices`, `invoice`, `invoiceAction` |
 | Payments | POST `/api/payments` | `recordPayment` |
-| Reports | GET `/api/reports?from=&to=&customer_id=` | `report` |
+| Reports | GET `/api/reports?from=&to=&customer_id=&include_payments=true&page=&page_size=` | `report` |
 | Billing | POST `/api/billing/run` | `runBilling` |
 
 Resources: `products`, `variants`, `plans`, `taxes`, `discounts`, `customers`, `quotation-templates`. Updates replace the complete editable resource payload, not a partial patch. No destructive delete endpoint is planned; archive products instead. Staff may read configuration to prepare quotes, but only admins change catalog/tax/discount/plan rules. Customers cannot call catalog/staff/report/admin endpoints; their subscription/invoice requests are scoped to their linked customer record.
@@ -156,8 +156,18 @@ Manual walkthrough:
 4. Inspect the captured invoice messages in Mailpit. For password reset, sign up a separate throwaway `.test` account, request a reset at `/forgot-password`, and follow its captured Mailpit link. Using a separate account keeps the saved demo credentials usable for reseeding.
 5. Admin editing, lifecycle actions, invoice confirmation and payment entry still use the existing `/api` endpoints until teammate UI controls are ready. GET requests are read-only; use the IDs in the manifest for deliberate mutations and retain each payment's original request key on retries.
 
+### PDF completion review — 2026-10-31
+
+- Mathew explicitly authorized remaining PDF functionality, tests, CodeRabbit review and merge. Two isolated audits found the existing auth/catalog/subscription/billing backend covers the assigned PDF rules; added the missing optional payment ledger and an explicit outstanding-invoice filter without changing default response shapes or introducing new architecture patterns.
+- `GET /api/reports?include_payments=true` adds `payments: Page<ReportPayment>`. Existing payment-date `from`/`to`, customer and currency filters apply to the ledger; summary and ledger use one read-only repeatable-read snapshot. Paging defaults to 25 and is capped at 100. Shared contracts expose `include_payments` and the optional page with invoice/customer context.
+- `GET /api/invoices?status=Outstanding` selects confirmed invoices with a positive remaining balance. `status=Overdue` additionally requires the due date to precede today. Both preserve customer ownership checks and existing date/customer/pagination filters.
+- Added focused Go tests for password/email/origin/strict-body validation, catalog/plan/template rules, exact money/discount allocation, calendar anchors, payment replay matching and report filters. The opt-in PostgreSQL HTTP workflow applies migrations to a fresh disposable `brightloop_test_*` database, never the running demo database. Set `TEST_DATABASE_URL` for that database before `go test -race ./... -count=1`; without it, only the database workflow skips. The test refuses an already initialized database; recreate only your disposable database between runs.
+- Verified the real PostgreSQL workflow with role/ownership checks, variant +560 pricing, snapshotted prices, lifecycle guards and customer transitions, concurrent billing and a capped discount, invoice confirmation/send deduplication, overpayment rejection, replay-safe partial/full payments, overdue/outstanding views, filtered payment pagination, report reconciliation and one-use password reset with session revocation. The temporary database was removed after each run; demo records were untouched.
+- `go test -race ./...` (including the opt-in database workflow), `go build ./...`, `npm run typecheck` and `npm run build` passed. Three local API read samples with 1,001 subscriptions took approximately 2–40 ms under the race detector. This is not a sustained load test or proof that every frontend page meets the PDF's two-second target; invoice samples had one invoice.
+- Remaining whole-product gaps belong to teammate UI workflows: admin editing/template application/lifecycle controls and portal/finance mutation/filter controls. Browser invoice printing already exists. These are not newly claimed complete, and this review does not authorize taking over their files. Mailpit remains the requested local email transport; no public deployment or real payment processing is configured.
+
 ## Authorized verification
 
-Allowed: `go build ./...` from backend, `npm run typecheck`, `npm run build`, code/contract inspection and skill-format validation. Not authorized by default: tests, browser test passes, benchmarks, load tests, test tooling or CI. Maintain a clear distinction between implemented, compiled and runtime-verified.
+Allowed by default: `go build ./...` from backend, `npm run typecheck`, `npm run build`, code/contract inspection and skill-format validation. Mathew additionally authorized tests for the PDF completion review above; focused unit/race/PostgreSQL workflow checks were run. That does not create blanket permission for future tests, CI, browser passes, benchmarks or load tests. Maintain a clear distinction between implemented, compiled and runtime-verified.
 
 References: supplied PDF and transcripts; [Go concurrency](https://go.dev/doc/effective_go#concurrency), [pgx pool](https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool), [Argon2id](https://pkg.go.dev/golang.org/x/crypto/argon2), [PostgreSQL locks](https://www.postgresql.org/docs/current/explicit-locking.html).
