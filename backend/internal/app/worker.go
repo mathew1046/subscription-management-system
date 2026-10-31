@@ -102,9 +102,8 @@ func smtpSend(ctx context.Context, recipient, subject, body, id string) error {
 	if err = w.Close(); err != nil {
 		return err
 	}
-	// DATA acceptance is success even if the peer closes during QUIT.
-	// Retrying that case would deliberately resend an accepted message.
-	_ = client.Quit()
+	// DATA acceptance completes delivery. Do not spend the outbox deadline on
+	// QUIT; deferred Close leaves time to persist acceptance in the transaction.
 	return nil
 }
 func (a *App) deliver(ctx context.Context) bool {

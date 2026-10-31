@@ -152,7 +152,9 @@ func (a *App) Billing(ctx context.Context) Object {
 			if e != nil {
 				failed++
 				// Do not overwrite success if another worker has already advanced this period.
-				_, _ = a.DB.Exec(ctx, "UPDATE subscriptions SET billing_error='Billing failed; review worker logs and configuration',retry_after=now()+interval '5 minutes' WHERE id=$1 AND next_billing_date=$2", s["id"], s["next_billing_date"])
+				if _, updateErr := a.DB.Exec(ctx, "UPDATE subscriptions SET billing_error='Billing failed; review worker logs and configuration',retry_after=now()+interval '5 minutes' WHERE id=$1 AND next_billing_date=$2", s["id"], s["next_billing_date"]); updateErr != nil && ctx.Err() == nil {
+					slog.Error("billing failure marker update failed", "subscription_id", s["id"], "error", updateErr)
+				}
 				slog.Error("billing transaction failed", "subscription_id", s["id"], "error", e)
 			} else if done {
 				processed++

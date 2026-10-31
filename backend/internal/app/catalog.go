@@ -159,6 +159,11 @@ func linkCustomer(ctx context.Context, tx pgx.Tx, recordID string, userID any) {
 	}
 	account := one(ctx, tx, "SELECT role FROM users WHERE id=$1 FOR UPDATE", userID)
 	require(account["role"] == "customer", 400, "VALIDATION", "Only customer accounts can be linked.")
+	if recordID != "" {
+		target := one(ctx, tx, "SELECT user_id FROM customers WHERE id=$1 FOR UPDATE", recordID)
+		owner := str(target["user_id"])
+		require(owner == "" || strings.EqualFold(owner, str(userID)), 409, "ACCOUNT_LINKED", "Customer already belongs to another account.")
+	}
 	// Signup creates an empty portal profile. An admin may move that account
 	// onto an existing customer, but never take ownership of another history.
 	linked := rows(ctx, tx, "SELECT id FROM customers WHERE user_id=$1 AND id IS DISTINCT FROM NULLIF($2::text,'')::uuid FOR UPDATE", userID, recordID)
