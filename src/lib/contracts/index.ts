@@ -40,10 +40,11 @@ export interface InvoiceLine {id:string;description:string;quantity:number;unit_
 export interface Payment extends z.output<typeof paymentInput> {id:string;created_by:string}
 export interface ResourceMap {products:Product;variants:Variant;plans:Plan;taxes:Tax;discounts:Discount;customers:Customer;'quotation-templates':QuotationTemplate}
 export interface Page<T> {items:T[];page:number;page_size:number;has_more:boolean}
-export interface Report {active_subscriptions:number;billed:Money;collected:Money;outstanding:Money;overdue:Money;currency:string;from:string;to:string}
+export interface ReportPayment extends Payment {invoice_number:string;customer_id:string;currency:string}
+export interface Report {active_subscriptions:number;billed:Money;collected:Money;outstanding:Money;overdue:Money;currency:string;from:string;to:string;payments?:Page<ReportPayment>}
 export type SubscriptionDetail = Subscription & {lines:SubscriptionLine[];quote_totals:{subtotal:Money;tax_total:Money;total:Money}};
 export interface InvoiceEmail {status:'not_queued'|'queued'|'retrying'|'failed'|'sent';attempts:number;sent_at:string|null;last_error:string|null}
 export interface InvoiceActionResult {ok:boolean;email?:InvoiceEmail}
 export type InvoiceDetail = Invoice & {lines:InvoiceLine[];payments:Payment[];email?:InvoiceEmail};
 export type ApiResult<T> = {data:T;request_id:string}|{error:{code:string;message:string};request_id:string};
-export interface ListParams {page?:number;page_size?:number;status?:string;customer_id?:string;from?:string;to?:string}
+export interface ListParams {page?:number;page_size?:number;status?:string;customer_id?:string;from?:string;to?:string;include_payments?:boolean}

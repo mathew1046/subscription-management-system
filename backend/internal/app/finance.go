@@ -2,9 +2,10 @@ package app
 
 import (
 	"context"
-	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const invoiceSelect = `SELECT i.*,COALESCE(p.paid,0)::numeric(16,2) AS paid,(CASE WHEN i.status='Cancelled' THEN 0 ELSE i.total-COALESCE(p.paid,0) END)::numeric(16,2) AS balance FROM invoices i LEFT JOIN LATERAL (SELECT SUM(amount) AS paid FROM payments WHERE invoice_id=i.id) p ON true JOIN customers c ON c.id=i.customer_id `
@@ -38,7 +39,7 @@ func (a *App) invoices(w http.ResponseWriter, r *http.Request) any {
 	page, size := pagination(r)
 	status := r.URL.Query().Get("status")
 	switch status {
-	case "", "Draft", "Confirmed", "Paid", "Cancelled", "Overdue":
+	case "", "Draft", "Confirmed", "Paid", "Cancelled", "Outstanding", "Overdue":
 	default:
 		panic(fault{400, "VALIDATION", "Invalid invoice status."})
 	}
@@ -55,7 +56,7 @@ func (a *App) invoices(w http.ResponseWriter, r *http.Request) any {
 		parseDate(to)
 	}
 	require(from == "" || to == "" || from <= to, 400, "VALIDATION", "Invalid invoice dates.")
-	return paged(rows(ctx, a.DB, invoiceSelect+`WHERE ($1::text<>'customer' OR c.user_id=$2) AND ($3='' OR i.status=$3 OR ($3='Overdue' AND i.status='Confirmed' AND i.due_on<(now() AT TIME ZONE 'UTC')::date AND i.total>COALESCE(p.paid,0))) AND ($4='' OR i.customer_id::text=$4) AND ($5='' OR i.issued_on>=NULLIF($5,'')::date) AND ($6='' OR i.issued_on<=NULLIF($6,'')::date) ORDER BY i.created_at DESC,i.id LIMIT $7 OFFSET $8`, u.Role, u.ID, status, customer, from, to, size+1, (page-1)*size), page, size)
+	return paged(rows(ctx, a.DB, invoiceSelect+`WHERE ($1::text<>'customer' OR c.user_id=$2) AND ($3='' OR i.status=$3 OR ($3 IN ('Outstanding','Overdue') AND i.status='Confirmed' AND i.total>COALESCE(p.paid,0) AND ($3='Outstanding' OR i.due_on<(now() AT TIME ZONE 'UTC')::date))) AND ($4='' OR i.customer_id::text=$4) AND ($5='' OR i.issued_on>=NULLIF($5,'')::date) AND ($6='' OR i.issued_on<=NULLIF($6,'')::date) ORDER BY i.created_at DESC,i.id LIMIT $7 OFFSET $8`, u.Role, u.ID, status, customer, from, to, size+1, (page-1)*size), page, size)
 }
 func (a *App) invoiceAction(w http.ResponseWriter, r *http.Request) any {
 	u := a.user(r)
@@ -102,10 +103,7 @@ type PaymentInput struct {
 	RequestKey string `json:"request_key"`
 }
 
-func (a *App) payment(w http.ResponseWriter, r *http.Request) any {
-	u := a.user(r)
-	internal(u)
-	v := body[PaymentInput](w, r)
+func validatePayment(v PaymentInput, now string) PaymentInput {
 	validID(v.InvoiceID)
 	validID(v.RequestKey)
 	v.InvoiceID = strings.ToLower(v.InvoiceID)
@@ -113,12 +111,23 @@ func (a *App) payment(w http.ResponseWriter, r *http.Request) any {
 	money(v.Amount)
 	require(number(v.Amount).IsPositive(), 400, "VALIDATION", "Amount must be positive.")
 	parseDate(v.PaidOn)
-	require(v.PaidOn <= today() && len(v.Note) <= 2000, 400, "VALIDATION", "Invalid payment date or note.")
+	require(v.PaidOn <= now && len(v.Note) <= 2000, 400, "VALIDATION", "Invalid payment date or note.")
 	switch v.Method {
 	case "bank_transfer", "cash", "card", "upi", "other":
 	default:
 		panic(fault{400, "VALIDATION", "Invalid payment method."})
 	}
+	return v
+}
+
+func paymentMatches(p Object, v PaymentInput) bool {
+	return p["invoice_id"] == v.InvoiceID && number(p["amount"]).Equal(number(v.Amount)) && p["method"] == v.Method && p["paid_on"] == v.PaidOn && p["note"] == v.Note
+}
+
+func (a *App) payment(w http.ResponseWriter, r *http.Request) any {
+	u := a.user(r)
+	internal(u)
+	v := validatePayment(body[PaymentInput](w, r), today())
 	ctx := r.Context()
 	return a.tx(ctx, func(tx pgx.Tx) any {
 		// Serialize a key across invoices before taking any invoice lock. Hash collisions
@@ -128,7 +137,7 @@ func (a *App) payment(w http.ResponseWriter, r *http.Request) any {
 		existing := rows(ctx, tx, "SELECT * FROM payments WHERE request_key=$1", v.RequestKey)
 		if len(existing) > 0 {
 			p := existing[0]
-			require(p["invoice_id"] == v.InvoiceID && number(p["amount"]).Equal(number(v.Amount)) && p["method"] == v.Method && p["paid_on"] == v.PaidOn && p["note"] == v.Note, 409, "IDEMPOTENCY_MISMATCH", "Request key already used for different payment data.")
+			require(paymentMatches(p, v), 409, "IDEMPOTENCY_MISMATCH", "Request key already used for different payment data.")
 			return p
 		}
 		require(i["status"] == "Confirmed", 409, "INVALID_TRANSITION", "Payments require a confirmed invoice.")
@@ -144,11 +153,8 @@ func (a *App) payment(w http.ResponseWriter, r *http.Request) any {
 		return p
 	})
 }
-func (a *App) report(w http.ResponseWriter, r *http.Request) any {
-	u := a.user(r)
-	internal(u)
-	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
-	now := today()
+func reportFilters(r *http.Request, now string) (from, to, customer string, includePayments bool) {
+	from, to = r.URL.Query().Get("from"), r.URL.Query().Get("to")
 	if from == "" {
 		from = now[:8] + "01"
 	}
@@ -158,13 +164,30 @@ func (a *App) report(w http.ResponseWriter, r *http.Request) any {
 	parseDate(from)
 	parseDate(to)
 	require(from <= to, 400, "VALIDATION", "Invalid report dates.")
-	customer := r.URL.Query().Get("customer_id")
+	customer = r.URL.Query().Get("customer_id")
 	if customer != "" {
 		validID(customer)
 		customer = strings.ToLower(customer)
 	}
+	include := r.URL.Query().Get("include_payments")
+	require(include == "" || include == "true" || include == "false", 400, "VALIDATION", "Invalid include_payments value.")
+	return from, to, customer, include == "true"
+}
+
+func (a *App) report(w http.ResponseWriter, r *http.Request) any {
+	u := a.user(r)
+	internal(u)
+	now := today()
+	from, to, customer, includePayments := reportFilters(r, now)
+	page, size := 1, 25
+	if includePayments {
+		page, size = pagination(r)
+	}
 	ctx := r.Context()
-	result := one(ctx, a.DB, `WITH selected AS (
+	return a.tx(ctx, func(tx pgx.Tx) any {
+		// The summary and optional payment page must describe the same committed snapshot.
+		exec(ctx, tx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+		result := one(ctx, tx, `WITH selected AS (
 		SELECT i.*,COALESCE(p.paid,0) AS paid FROM invoices i
 		LEFT JOIN LATERAL(SELECT SUM(amount) paid FROM payments WHERE invoice_id=i.id) p ON true
 		WHERE ($3='' OR i.customer_id::text=$3) AND i.currency=$4
@@ -180,8 +203,16 @@ func (a *App) report(w http.ResponseWriter, r *http.Request) any {
 		ROUND(COALESCE(SUM(total-paid) FILTER(WHERE status='Confirmed'),0),2) outstanding,
 		ROUND(COALESCE(SUM(total-paid) FILTER(WHERE status='Confirmed' AND due_on<$5::date),0),2) overdue
 	FROM selected`, from, to, customer, a.Currency, now)
-	result["currency"] = a.Currency
-	result["from"] = from
-	result["to"] = to
-	return result
+		result["currency"] = a.Currency
+		result["from"] = from
+		result["to"] = to
+		if includePayments {
+			// Match collected's payment-date/customer/currency filters, not invoice issue dates.
+			result["payments"] = paged(rows(ctx, tx, `SELECT p.*,i.number AS invoice_number,i.customer_id,i.currency
+				FROM payments p JOIN invoices i ON i.id=p.invoice_id
+				WHERE p.paid_on BETWEEN $1::date AND $2::date AND ($3='' OR i.customer_id::text=$3) AND i.currency=$4
+				ORDER BY p.paid_on DESC,p.id LIMIT $5 OFFSET $6`, from, to, customer, a.Currency, size+1, (page-1)*size), page, size)
+		}
+		return result
+	})
 }
