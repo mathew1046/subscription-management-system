@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -18,6 +19,14 @@ import (
 )
 
 const sessionCookie = "brightloop_session"
+
+// Provisional fixed-window budgets, shared across sessions and API processes.
+const (
+	authRateWindow        = 15 * time.Minute
+	userRateWindow        = time.Minute
+	userReadRateLimit     = 300
+	userMutationRateLimit = 60
+)
 
 func digest(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 func validatePassword(s string) {
@@ -59,8 +68,29 @@ func (a *App) verify(ctx context.Context, password, hash string) bool {
 	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 func (a *App) rate(ctx context.Context, key string, limit int) {
-	r := one(ctx, a.DB, `INSERT INTO rate_limits(key,hits,expires_at) VALUES($1,1,now()+interval '15 minutes') ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.hits+1 END,expires_at=CASE WHEN rate_limits.expires_at<now() THEN now()+interval '15 minutes' ELSE rate_limits.expires_at END RETURNING hits`, digest(key))
-	require(integer(r["hits"]) <= limit, 429, "RATE_LIMIT", "Too many attempts. Try again later.")
+	a.rateWindow(ctx, key, limit, authRateWindow)
+}
+func (a *App) rateWindow(ctx context.Context, key string, limit int, window time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var hits, retryAfter int
+	check(a.DB.QueryRow(ctx, `
+		INSERT INTO rate_limits(key,hits,expires_at)
+		VALUES($1,1,now()+$2::bigint*interval '1 second')
+		ON CONFLICT(key) DO UPDATE SET
+			hits=CASE WHEN rate_limits.expires_at<now() THEN 1 ELSE rate_limits.hits+1 END,
+			expires_at=CASE WHEN rate_limits.expires_at<now() THEN now()+$2::bigint*interval '1 second' ELSE rate_limits.expires_at END
+		RETURNING hits,GREATEST(1,CEIL(EXTRACT(EPOCH FROM (expires_at-clock_timestamp()))))::integer`,
+		digest(key), int64(window/time.Second)).Scan(&hits, &retryAfter))
+	if hits > limit {
+		panic(rateLimitFault{fault{429, "RATE_LIMIT", "Too many attempts. Try again later."}, retryAfter})
+	}
+}
+func userRatePolicy(userID, method string) (key string, limit int) {
+	if method == http.MethodGet || method == http.MethodHead {
+		return "user:read:" + userID, userReadRateLimit
+	}
+	return "user:mutation:" + userID, userMutationRateLimit
 }
 func (a *App) user(r *http.Request) User {
 	cookie, err := r.Cookie(sessionCookie)
@@ -69,6 +99,8 @@ func (a *App) user(r *http.Request) User {
 	err = a.DB.QueryRow(r.Context(), `SELECT u.id::text,u.name,u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest(cookie.Value)).Scan(&u.ID, &u.Name, &u.Email, &u.Role)
 	require(err != pgx.ErrNoRows, 401, "UNAUTHENTICATED", "Session expired. Sign in again.")
 	check(err)
+	key, limit := userRatePolicy(u.ID, r.Method)
+	a.rateWindow(r.Context(), key, limit, userRateWindow)
 	return u
 }
 func (a *App) setCookie(w http.ResponseWriter, value string, maxAge int) {
