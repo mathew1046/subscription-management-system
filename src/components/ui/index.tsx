@@ -69,7 +69,7 @@ function DialogFrame({ open, onOpenChange, title, description, children, pending
         }}
         onCloseAutoFocus={event => {
           event.preventDefault();
-          if (returnFocus.current?.isConnected) {
+          if (returnFocus.current?.isConnected && returnFocus.current !== document.body) {
             returnFocus.current.focus();
             if (document.activeElement === returnFocus.current) return;
           }
