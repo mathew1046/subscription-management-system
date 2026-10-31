@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-31T07:46:40Z",
+  "title": "Design System: Brightloop — Paper & ink",
+  "extensions": {
+    "colorMeta": {
+      "paper": { "role": "neutral", "displayName": "Paper", "tonalRamp": ["oklch(15% 0.0013 106.42)", "oklch(26% 0.0013 106.42)", "oklch(38% 0.0013 106.42)", "oklch(49% 0.0013 106.42)", "oklch(61% 0.0013 106.42)", "oklch(72% 0.0013 106.42)", "oklch(84% 0.0013 106.42)", "oklch(95% 0.0013 106.42)"] },
+      "surface": { "role": "neutral", "displayName": "White surface", "tonalRamp": ["oklch(15% 0 0)", "oklch(26% 0 0)", "oklch(38% 0 0)", "oklch(49% 0 0)", "oklch(61% 0 0)", "oklch(72% 0 0)", "oklch(84% 0 0)", "oklch(95% 0 0)"] },
+      "surface-subtle": { "role": "neutral", "displayName": "Soft paper", "tonalRamp": ["oklch(15% 0.0041 121.56)", "oklch(26% 0.0041 121.56)", "oklch(38% 0.0041 121.56)", "oklch(49% 0.0041 121.56)", "oklch(61% 0.0041 121.56)", "oklch(72% 0.0041 121.56)", "oklch(84% 0.0041 121.56)", "oklch(95% 0.0041 121.56)"] },
+      "ink": { "role": "neutral", "displayName": "Charcoal ink", "tonalRamp": ["oklch(15% 0.0081 169.70)", "oklch(26% 0.0081 169.70)", "oklch(38% 0.0081 169.70)", "oklch(49% 0.0081 169.70)", "oklch(61% 0.0081 169.70)", "oklch(72% 0.0081 169.70)", "oklch(84% 0.0081 169.70)", "oklch(95% 0.0081 169.70)"] },
+      "muted": { "role": "neutral", "displayName": "Quiet ink", "tonalRamp": ["oklch(15% 0.0163 155.26)", "oklch(26% 0.0163 155.26)", "oklch(38% 0.0163 155.26)", "oklch(49% 0.0163 155.26)", "oklch(61% 0.0163 155.26)", "oklch(72% 0.0163 155.26)", "oklch(84% 0.0163 155.26)", "oklch(95% 0.0163 155.26)"] },
+      "line": { "role": "neutral", "displayName": "Neutral rule", "tonalRamp": ["oklch(15% 0.0080 139.44)", "oklch(26% 0.0080 139.44)", "oklch(38% 0.0080 139.44)", "oklch(49% 0.0080 139.44)", "oklch(61% 0.0080 139.44)", "oklch(72% 0.0080 139.44)", "oklch(84% 0.0080 139.44)", "oklch(95% 0.0080 139.44)"] },
+      "control-line": { "role": "neutral", "displayName": "Control stroke", "tonalRamp": ["oklch(15% 0.0131 149.21)", "oklch(26% 0.0131 149.21)", "oklch(38% 0.0131 149.21)", "oklch(49% 0.0131 149.21)", "oklch(61% 0.0131 149.21)", "oklch(72% 0.0131 149.21)", "oklch(84% 0.0131 149.21)", "oklch(95% 0.0131 149.21)"] },
+      "accent": { "role": "primary", "displayName": "Service green", "tonalRamp": ["oklch(15% 0.0968 174.09)", "oklch(26% 0.0968 174.09)", "oklch(38% 0.0968 174.09)", "oklch(49% 0.0968 174.09)", "oklch(61% 0.0968 174.09)", "oklch(72% 0.0968 174.09)", "oklch(84% 0.0968 174.09)", "oklch(95% 0.0968 174.09)"] },
+      "accent-ink": { "role": "primary", "displayName": "Deep green", "tonalRamp": ["oklch(15% 0.0827 172.95)", "oklch(26% 0.0827 172.95)", "oklch(38% 0.0827 172.95)", "oklch(49% 0.0827 172.95)", "oklch(61% 0.0827 172.95)", "oklch(72% 0.0827 172.95)", "oklch(84% 0.0827 172.95)", "oklch(95% 0.0827 172.95)"] },
+      "accent-soft": { "role": "primary", "displayName": "Green wash", "tonalRamp": ["oklch(15% 0.0132 159.91)", "oklch(26% 0.0132 159.91)", "oklch(38% 0.0132 159.91)", "oklch(49% 0.0132 159.91)", "oklch(61% 0.0132 159.91)", "oklch(72% 0.0132 159.91)", "oklch(84% 0.0132 159.91)", "oklch(95% 0.0132 159.91)"] },
+      "danger": { "role": "semantic", "displayName": "Danger ink", "tonalRamp": ["oklch(15% 0.1581 26.84)", "oklch(26% 0.1581 26.84)", "oklch(38% 0.1581 26.84)", "oklch(49% 0.1581 26.84)", "oklch(61% 0.1581 26.84)", "oklch(72% 0.1581 26.84)", "oklch(84% 0.1581 26.84)", "oklch(95% 0.1581 26.84)"] },
+      "danger-soft": { "role": "semantic", "displayName": "Danger wash", "tonalRamp": ["oklch(15% 0.0133 28.87)", "oklch(26% 0.0133 28.87)", "oklch(38% 0.0133 28.87)", "oklch(49% 0.0133 28.87)", "oklch(61% 0.0133 28.87)", "oklch(72% 0.0133 28.87)", "oklch(84% 0.0133 28.87)", "oklch(95% 0.0133 28.87)"] },
+      "status-neutral": { "role": "semantic", "displayName": "Neutral status ink", "tonalRamp": ["oklch(15% 0.0176 151.45)", "oklch(26% 0.0176 151.45)", "oklch(38% 0.0176 151.45)", "oklch(49% 0.0176 151.45)", "oklch(61% 0.0176 151.45)", "oklch(72% 0.0176 151.45)", "oklch(84% 0.0176 151.45)", "oklch(95% 0.0176 151.45)"] },
+      "status-neutral-bg": { "role": "semantic", "displayName": "Neutral status paper", "tonalRamp": ["oklch(15% 0.0041 121.56)", "oklch(26% 0.0041 121.56)", "oklch(38% 0.0041 121.56)", "oklch(49% 0.0041 121.56)", "oklch(61% 0.0041 121.56)", "oklch(72% 0.0041 121.56)", "oklch(84% 0.0041 121.56)", "oklch(95% 0.0041 121.56)"] },
+      "status-positive": { "role": "semantic", "displayName": "Positive status ink", "tonalRamp": ["oklch(15% 0.0856 155.78)", "oklch(26% 0.0856 155.78)", "oklch(38% 0.0856 155.78)", "oklch(49% 0.0856 155.78)", "oklch(61% 0.0856 155.78)", "oklch(72% 0.0856 155.78)", "oklch(84% 0.0856 155.78)", "oklch(95% 0.0856 155.78)"] },
+      "status-positive-bg": { "role": "semantic", "displayName": "Positive status wash", "tonalRamp": ["oklch(15% 0.0133 152.60)", "oklch(26% 0.0133 152.60)", "oklch(38% 0.0133 152.60)", "oklch(49% 0.0133 152.60)", "oklch(61% 0.0133 152.60)", "oklch(72% 0.0133 152.60)", "oklch(84% 0.0133 152.60)", "oklch(95% 0.0133 152.60)"] },
+      "status-positive-line": { "role": "semantic", "displayName": "Positive status rule", "tonalRamp": ["oklch(15% 0.0269 155.92)", "oklch(26% 0.0269 155.92)", "oklch(38% 0.0269 155.92)", "oklch(49% 0.0269 155.92)", "oklch(61% 0.0269 155.92)", "oklch(72% 0.0269 155.92)", "oklch(84% 0.0269 155.92)", "oklch(95% 0.0269 155.92)"] },
+      "status-info": { "role": "semantic", "displayName": "Informational status ink", "tonalRamp": ["oklch(15% 0.0521 236.52)", "oklch(26% 0.0521 236.52)", "oklch(38% 0.0521 236.52)", "oklch(49% 0.0521 236.52)", "oklch(61% 0.0521 236.52)", "oklch(72% 0.0521 236.52)", "oklch(84% 0.0521 236.52)", "oklch(95% 0.0521 236.52)"] },
+      "status-info-bg": { "role": "semantic", "displayName": "Informational status wash", "tonalRamp": ["oklch(15% 0.0067 233.64)", "oklch(26% 0.0067 233.64)", "oklch(38% 0.0067 233.64)", "oklch(49% 0.0067 233.64)", "oklch(61% 0.0067 233.64)", "oklch(72% 0.0067 233.64)", "oklch(84% 0.0067 233.64)", "oklch(95% 0.0067 233.64)"] },
+      "status-info-line": { "role": "semantic", "displayName": "Informational status rule", "tonalRamp": ["oklch(15% 0.0170 236.71)", "oklch(26% 0.0170 236.71)", "oklch(38% 0.0170 236.71)", "oklch(49% 0.0170 236.71)", "oklch(61% 0.0170 236.71)", "oklch(72% 0.0170 236.71)", "oklch(84% 0.0170 236.71)", "oklch(95% 0.0170 236.71)"] },
+      "status-warning": { "role": "semantic", "displayName": "Warning status ink", "tonalRamp": ["oklch(15% 0.0861 76.51)", "oklch(26% 0.0861 76.51)", "oklch(38% 0.0861 76.51)", "oklch(49% 0.0861 76.51)", "oklch(61% 0.0861 76.51)", "oklch(72% 0.0861 76.51)", "oklch(84% 0.0861 76.51)", "oklch(95% 0.0861 76.51)"] },
+      "status-warning-bg": { "role": "semantic", "displayName": "Warning status wash", "tonalRamp": ["oklch(15% 0.0171 84.59)", "oklch(26% 0.0171 84.59)", "oklch(38% 0.0171 84.59)", "oklch(49% 0.0171 84.59)", "oklch(61% 0.0171 84.59)", "oklch(72% 0.0171 84.59)", "oklch(84% 0.0171 84.59)", "oklch(95% 0.0171 84.59)"] },
+      "status-warning-line": { "role": "semantic", "displayName": "Warning status rule", "tonalRamp": ["oklch(15% 0.0448 83.90)", "oklch(26% 0.0448 83.90)", "oklch(38% 0.0448 83.90)", "oklch(49% 0.0448 83.90)", "oklch(61% 0.0448 83.90)", "oklch(72% 0.0448 83.90)", "oklch(84% 0.0448 83.90)", "oklch(95% 0.0448 83.90)"] },
+      "status-danger-line": { "role": "semantic", "displayName": "Danger status rule", "tonalRamp": ["oklch(15% 0.0355 26.56)", "oklch(26% 0.0355 26.56)", "oklch(38% 0.0355 26.56)", "oklch(49% 0.0355 26.56)", "oklch(61% 0.0355 26.56)", "oklch(72% 0.0355 26.56)", "oklch(84% 0.0355 26.56)", "oklch(95% 0.0355 26.56)"] },
+      "status-closed-bg": { "role": "semantic", "displayName": "Closed status paper", "tonalRamp": ["oklch(15% 0.0041 121.56)", "oklch(26% 0.0041 121.56)", "oklch(38% 0.0041 121.56)", "oklch(49% 0.0041 121.56)", "oklch(61% 0.0041 121.56)", "oklch(72% 0.0041 121.56)", "oklch(84% 0.0041 121.56)", "oklch(95% 0.0041 121.56)"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Page headline", "purpose": "Desktop page titles; 36px at up to 900px before the mobile role applies." },
+      "headline-mobile": { "displayName": "Mobile page headline", "purpose": "Page titles at up to 600px." },
+      "title": { "displayName": "Section title", "purpose": "Ruled form and detail sections; 18px at up to 600px." },
+      "body": { "displayName": "Body", "purpose": "General operational copy, in a local sans-serif stack." },
+      "description": { "displayName": "Page description", "purpose": "Muted page summaries, at most 72ch; 13px at up to 600px." },
+      "label": { "displayName": "Field label", "purpose": "Visible native control labels." },
+      "table-heading": { "displayName": "Table heading", "purpose": "Uppercase column labels; not data cells or row headings." }
+    },
+    "shadows": [
+      { "name": "dialog-shadow", "value": "0 16px 64px rgb(18 28 22 / 18%)", "purpose": "Only floating dialogs and the navigation drawer; resting panels remain flat." }
+    ],
+    "motion": [
+      { "name": "overlay-enter", "value": "140ms ease-out", "purpose": "Overlay opacity 0 to 1." },
+      { "name": "dialog-enter", "value": "140ms ease-out", "purpose": "Dialog opacity .5 to 1; translate(-50%, calc(-50% + 6px)) to translate(-50%, -50%)." },
+      { "name": "drawer-enter", "value": "150ms ease-out", "purpose": "Drawer opacity .5 to 1 and translateX(-16px) to translateX(0)." },
+      { "name": "reduced-motion", "value": ".01ms", "purpose": "prefers-reduced-motion: reduce overrides animation/transition durations, sets one animation iteration and scroll-behavior: auto." }
+    ],
+    "breakpoints": [
+      { "name": "wide-min", "value": "1600px" },
+      { "name": "compact-max", "value": "1200px" },
+      { "name": "drawer-max", "value": "900px" },
+      { "name": "mobile-max", "value": "600px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Charcoal primary action; real pending state disables repeat submission.",
+      "html": "<button type=\"button\" class=\"ds-button-primary\">New subscription</button>",
+      "css": ".ds-button-primary { display:inline-flex; justify-content:center; align-items:center; gap:8px; min-height:42px; padding:10px 17px; border:1px solid transparent; border-radius:var(--radius, 6px); background:var(--ink, #202523); color:var(--surface, #ffffff); font:600 13px/1.45 Arial,Helvetica,sans-serif; cursor:pointer; text-align:center; } .ds-button-primary:hover { background:#353d38; } .ds-button-primary:active { background:#111713; } .ds-button-primary:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-button-primary:disabled { opacity:.5; cursor:not-allowed; } @media(max-width:600px) { .ds-button-primary { min-height:44px; } }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined secondary action with a stronger control stroke than section rules.",
+      "html": "<button type=\"button\" class=\"ds-button-secondary\">Reload status</button>",
+      "css": ".ds-button-secondary { display:inline-flex; justify-content:center; align-items:center; gap:8px; min-height:42px; padding:10px 17px; border:1px solid var(--control-line, #b7bfb8); border-radius:var(--radius, 6px); background:var(--surface, #ffffff); color:var(--ink, #202523); font:600 13px/1.45 Arial,Helvetica,sans-serif; cursor:pointer; text-align:center; } .ds-button-secondary:hover { background:var(--surface-subtle, #f5f6f3); border-color:#8d988f; } .ds-button-secondary:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-button-secondary:disabled { opacity:.5; cursor:not-allowed; } @media(max-width:600px) { .ds-button-secondary { min-height:44px; } }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Explicitly labelled destructive action, used with the existing confirmation flow.",
+      "html": "<button type=\"button\" class=\"ds-button-danger\">Close subscription</button>",
+      "css": ".ds-button-danger { display:inline-flex; justify-content:center; align-items:center; gap:8px; min-height:42px; padding:10px 17px; border:1px solid transparent; border-radius:var(--radius, 6px); background:var(--danger, #a62d29); color:var(--surface, #ffffff); font:600 13px/1.45 Arial,Helvetica,sans-serif; cursor:pointer; text-align:center; } .ds-button-danger:hover { background:#89231f; } .ds-button-danger:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-button-danger:disabled { opacity:.5; cursor:not-allowed; } @media(max-width:600px) { .ds-button-danger { min-height:44px; } }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Quiet contextual action; not a substitute for a visible primary action.",
+      "html": "<button type=\"button\" class=\"ds-button-ghost\">Remove line</button>",
+      "css": ".ds-button-ghost { display:inline-flex; justify-content:center; align-items:center; gap:8px; min-height:42px; padding:10px 17px; border:1px solid transparent; border-radius:var(--radius, 6px); background:transparent; color:var(--ink, #202523); font:600 13px/1.45 Arial,Helvetica,sans-serif; cursor:pointer; text-align:center; } .ds-button-ghost:hover { background:var(--surface-subtle, #f5f6f3); } .ds-button-ghost:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-button-ghost:disabled { opacity:.5; cursor:not-allowed; } @media(max-width:600px) { .ds-button-ghost { min-height:44px; } }"
+    },
+    {
+      "name": "Labelled Native Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Visible label and native control; no floating-label or custom keyboard model.",
+      "html": "<label class=\"ds-field\"><span>Customer name</span><input class=\"ds-field-input\" type=\"text\" placeholder=\"Enter customer name\"></label>",
+      "css": ".ds-field { display:grid; align-content:start; gap:8px; min-width:0; margin-bottom:20px; color:var(--ink, #202523); font:600 13px/1.5 Arial,Helvetica,sans-serif; } .ds-field-input { min-width:0; min-height:42px; padding:9px 12px; border:1px solid var(--control-line, #b7bfb8); border-radius:var(--radius, 6px); background:var(--surface, #ffffff); color:var(--ink, #202523); caret-color:var(--accent, #0d7c66); font:400 14px/1.5 Arial,Helvetica,sans-serif; } .ds-field-input::placeholder { color:#6d756f; opacity:1; } .ds-field-input:hover:not(:disabled) { border-color:#87948a; } .ds-field-input:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-field-input:disabled { background:var(--surface-subtle, #f5f6f3); color:var(--muted, #636d66); cursor:not-allowed; } .ds-field-input[readonly] { background:var(--surface-subtle, #f5f6f3); } .ds-field-input[aria-invalid=true] { border-color:var(--danger, #a62d29); } @media(max-width:600px) { .ds-field-input { min-height:44px; font-size:16px; } }"
+    },
+    {
+      "name": "Selected Navigation",
+      "kind": "nav",
+      "refersTo": "nav-selected",
+      "description": "Green-wash current-page state, reusing the desktop rail treatment inside the mobile drawer.",
+      "html": "<nav aria-label=\"Workspace navigation\"><a class=\"ds-nav-link\" href=\"/admin/subscriptions\" aria-current=\"page\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m2 7 4-4 4 4M6 3v12a2 2 0 0 0 2 2h3m11 0-4 4-4-4m4 4V9a2 2 0 0 0-2-2h-3\"/></svg><span>Subscriptions</span></a></nav>",
+      "css": ".ds-nav-link { display:flex; align-items:center; gap:11px; min-height:42px; margin:2px 0; padding:9px 12px; border-radius:var(--radius, 6px); color:#505b53; font:500 13px/1.4 Arial,Helvetica,sans-serif; text-decoration:none; } .ds-nav-link:hover { background:var(--surface-subtle, #f5f6f3); color:var(--ink, #202523); text-decoration:none; } .ds-nav-link[aria-current=page] { background:var(--accent-soft, #e9f3ed); color:var(--accent-ink, #08624f); font-weight:600; } .ds-nav-link:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-nav-link svg { flex-shrink:0; }"
+    },
+    {
+      "name": "Text Status Badge",
+      "kind": "chip",
+      "refersTo": "status-active",
+      "description": "Non-interactive saved-state label; never relies on color alone or adds button behavior.",
+      "html": "<span class=\"ds-status-active\">Active</span>",
+      "css": ".ds-status-active { display:inline-flex; align-items:center; width:fit-content; padding:3px 9px; border:1px solid #cde0d3; border-radius:5px; background:#edf6ef; color:#2c6946; font:500 11px/1.6 Arial,Helvetica,sans-serif; white-space:nowrap; }"
+    },
+    {
+      "name": "Flat Editor Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Restrained white editor surface; not a requirement to box every group of records.",
+      "html": "<section class=\"ds-panel\"><h2>Agreement</h2><p>Review the customer and recurring plan.</p></section>",
+      "css": ".ds-panel { min-width:0; padding:28px; border:1px solid var(--line, #dfe3de); border-radius:10px; background:var(--surface, #ffffff); color:var(--ink, #202523); font:400 15px/1.6 Arial,Helvetica,sans-serif; } .ds-panel h2 { margin:0 0 24px; color:var(--ink, #202523); font-size:19px; line-height:1.4; font-weight:600; letter-spacing:-.02em; } .ds-panel p { margin:0; color:var(--muted, #636d66); } @media(max-width:600px) { .ds-panel { padding:20px; } .ds-panel h2 { font-size:18px; margin-bottom:20px; } }"
+    },
+    {
+      "name": "Error Notice",
+      "kind": "custom",
+      "refersTo": "notice-error",
+      "description": "In-place alert with retained input; this specimen describes an error, not a fabricated backend result.",
+      "html": "<p class=\"ds-notice-error\" role=\"alert\">The action did not complete. Check the record before retrying.</p>",
+      "css": ".ds-notice-error { margin:16px 0; padding:12px 16px; border:1px solid #edc9c5; border-radius:var(--radius, 6px); background:var(--danger-soft, #fcf0ee); color:var(--danger, #a62d29); font:400 13px/1.65 Arial,Helvetica,sans-serif; overflow-wrap:anywhere; }"
+    },
+    {
+      "name": "Confirmation Surface",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "Static visual specimen only. The app's Radix ConfirmDialog owns focus, Cancel-first behavior, dismissal and pending guards.",
+      "html": "<section class=\"ds-confirm\" aria-label=\"Confirmation surface specimen\"><div class=\"ds-confirm-heading\"><h2>Close subscription early?</h2><button class=\"ds-confirm-close\" type=\"button\" aria-label=\"Close dialog\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"m18 6-12 12M6 6l12 12\"/></svg></button></div><p>This cannot be undone or renewed. Existing invoices remain payable; no refund or proration is created.</p><div class=\"ds-confirm-actions\"><button type=\"button\" class=\"ds-confirm-cancel\">Cancel</button><button type=\"button\" class=\"ds-confirm-danger\">Close subscription</button></div></section>",
+      "css": ".ds-confirm { position:relative; max-width:416px; padding:32px; border-radius:10px; background:var(--surface, #ffffff); color:var(--ink, #202523); box-shadow:var(--dialog-shadow, 0 16px 64px rgb(18 28 22 / 18%)); font:400 13px/1.7 Arial,Helvetica,sans-serif; } .ds-confirm-heading { padding-right:28px; margin-bottom:24px; } .ds-confirm h2 { margin:0; color:var(--ink, #202523); font-size:25px; line-height:1.3; font-weight:600; letter-spacing:-.025em; } .ds-confirm p { margin:12px 0 0; color:var(--muted, #636d66); } .ds-confirm-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:12px; margin-top:24px; padding-top:24px; border-top:1px solid var(--line, #dfe3de); } .ds-confirm-cancel,.ds-confirm-danger { display:inline-flex; align-items:center; justify-content:center; min-height:42px; padding:10px 17px; border:1px solid transparent; border-radius:var(--radius, 6px); font:600 13px/1.45 Arial,Helvetica,sans-serif; text-align:center; cursor:pointer; } .ds-confirm-cancel { color:var(--ink, #202523); background:var(--surface, #ffffff); border-color:var(--control-line, #b7bfb8); } .ds-confirm-cancel:hover { background:var(--surface-subtle, #f5f6f3); border-color:#8d988f; } .ds-confirm-danger { color:var(--surface, #ffffff); background:var(--danger, #a62d29); } .ds-confirm-danger:hover { background:#89231f; } .ds-confirm-close { position:absolute; top:16px; right:16px; display:inline-flex; align-items:center; justify-content:center; width:42px; min-height:42px; padding:8px; border:1px solid transparent; border-radius:var(--radius, 6px); color:var(--ink, #202523); background:transparent; cursor:pointer; } .ds-confirm-close:hover { background:var(--surface-subtle, #f5f6f3); } .ds-confirm button:focus-visible { outline:2px solid var(--accent, #0d7c66); outline-offset:4px; } .ds-confirm button:disabled { opacity:.5; cursor:not-allowed; } @media(max-width:600px) { .ds-confirm { padding:24px; } .ds-confirm h2 { font-size:22px; } .ds-confirm-close { top:10px; right:10px; min-height:44px; } .ds-confirm-actions { gap:10px; } .ds-confirm-cancel,.ds-confirm-danger { flex:1; min-height:44px; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Paper & ink",
+    "overview": "Brightloop is a minimal, professional workspace: near-white paper, a white navigation rail, charcoal headings and primary actions, and restrained green wayfinding. Thin rules and generous section spacing organise dense operational records without turning every group into a card. The loop mark and lowercase wordmark supply identity; no decorative imagery is needed.\n\nThis is the finished implementation contract, extracted on 2026-10-31 from `src/app/globals.css`, `src/components/` and the admin feature components. It replaces the provisional direction values with built values. The approved code-led preview (seed `b221723e`, `model-pick`) establishes the world, not production rows or unbuilt controls. The finish reviewer returned **ship (9/10)** across the supplied desktop list/detail and mobile list/create/drawer/dialog captures. That bounded review is not a whole-product accessibility, performance or production-readiness claim.",
+    "keyCharacteristics": [
+      "Paper backgrounds, white surfaces, fine neutral rules.",
+      "Charcoal actions; green selection, links and keyboard focus.",
+      "Compact labelled records beneath generous page headings.",
+      "Native fields, explicit feedback and text-labelled status.",
+      "A persistent desktop rail that becomes a mobile drawer."
+    ],
+    "rules": [
+      { "name": "The Meaning Before Color Rule", "body": "Always render the state or outcome in words; color never stands in for saved lifecycle, pause, closure or delivery state.", "section": "colors" },
+      { "name": "The Flat Workspace Rule", "body": "Resting records and editor panels use rules and white/paper contrast, not shadows. Nested panels flatten into ruled sections instead of accumulating bordered cards.", "section": "elevation" }
+    ],
+    "dos": [
+      "**Do** reuse the loop mark, lowercase wordmark and restrained green wayfinding.",
+      "**Do** preserve labelled native fields, visible keyboard focus and text-labelled status.",
+      "**Do** keep wide records in labelled horizontal scroll regions and stack forms at the existing breakpoints.",
+      "**Do** show real server-returned totals, saved state, pending work and recoverable errors without discarding input.",
+      "**Do** retain shared component props and CSS hooks for existing portal, finance and auth consumers."
+    ],
+    "donts": [
+      "**Don't** add gradients, glass, ornamental imagery or decorative metric cards to this paper-and-ink workspace.",
+      "**Don't** nest bordered panels when a ruled section expresses the same hierarchy.",
+      "**Don't** hide financial columns, calculate authoritative totals in the browser or present preview/demo rows as production data.",
+      "**Don't** use color alone for state or claim success before the server confirms it.",
+      "**Don't** turn shared presentation work into backend, authorization or teammate-owned page-logic changes."
+    ]
+  }
+}
