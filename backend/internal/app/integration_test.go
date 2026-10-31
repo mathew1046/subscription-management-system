@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -509,14 +510,93 @@ func TestPostgresSubscriptionWorkflow(t *testing.T) {
 		delete(historical, "request_key")
 		request(staff, "POST", "/api/subscriptions", historical, 400)
 	})
+	t.Run("shared rate limits and expiry", func(t *testing.T) {
+		request := requestFor(t)
+		input := Registration{Name: "Rate fixture", Email: "rate@example.test", Password: password}
+		account := a.register(ctx, input, "customer")
+		first, second := newClient(), newClient()
+		for _, client := range []*http.Client{first, second} {
+			request(client, "POST", "/api/auth/login", Object{"email": input.Email, "password": password}, 200)
+		}
+		// A second application instance shares only PostgreSQL, not limiter state.
+		peer := *a
+		peerServer := httptest.NewServer(peer.Routes())
+		defer peerServer.Close()
+		readKey, _ := userRatePolicy(str(account["id"]), http.MethodGet)
+		writeKey, _ := userRatePolicy(str(account["id"]), http.MethodPost)
+		seed := func(key string, hits int, seconds int) {
+			exec(ctx, a.DB, `INSERT INTO rate_limits(key,hits,expires_at) VALUES($1,$2,now()+$3::integer*interval '1 second') ON CONFLICT(key) DO UPDATE SET hits=EXCLUDED.hits,expires_at=EXCLUDED.expires_at`, digest(key), hits, seconds)
+		}
+		seed(readKey, userReadRateLimit-1, 60)
+		request(first, "GET", "/api/auth/me", nil, 200)
+		response, err := second.Get(peerServer.URL + "/api/auth/me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		seconds, err := strconv.Atoi(response.Header.Get("Retry-After"))
+		if response.StatusCode != 429 || err != nil || seconds < 1 || seconds > 60 {
+			t.Fatalf("shared read limit: status=%d Retry-After=%q", response.StatusCode, response.Header.Get("Retry-After"))
+		}
+		request(admin, "GET", "/api/auth/me", nil, 200)
+		seed(writeKey, userMutationRateLimit-1, 60)
+		// The independent write budget admits this request to authorization.
+		request(first, "POST", "/api/billing/run", Object{}, 403)
+		if got := request(second, "POST", "/api/billing/run", Object{}, 429); got["code"] != "RATE_LIMIT" {
+			t.Fatal("mutation budget did not return the existing rate-limit envelope")
+		}
+		exec(ctx, a.DB, "UPDATE rate_limits SET expires_at=now()-interval '1 second' WHERE key=$1", digest(readKey))
+		request(second, "GET", "/api/auth/me", nil, 200)
+		if integer(one(ctx, a.DB, "SELECT hits FROM rate_limits WHERE key=$1", digest(readKey))["hits"]) != 1 {
+			t.Fatal("expired read window did not restart at one")
+		}
+		seed("auth-global", 500, 900)
+		defer exec(ctx, a.DB, "DELETE FROM rate_limits WHERE key=$1", digest("auth-global"))
+		request(first, "POST", "/api/auth/logout", Object{}, 200)
+		request(first, "GET", "/api/auth/me", nil, 401)
+		request(second, "POST", "/api/billing/run", Object{}, 429)
+
+		const key = "integration:atomic-rate-window"
+		results := make(chan any, 8)
+		for i := range 8 {
+			go func() {
+				var failure any
+				func() {
+					defer func() { failure = recover() }()
+					instance := a
+					if i%2 == 1 {
+						instance = &peer
+					}
+					instance.rateWindow(ctx, key, 3, time.Minute)
+				}()
+				results <- failure
+			}()
+		}
+		accepted := 0
+		for range 8 {
+			failure := <-results
+			if failure == nil {
+				accepted++
+				continue
+			}
+			if _, ok := failure.(rateLimitFault); !ok {
+				t.Fatalf("unexpected limiter failure: %v", failure)
+			}
+		}
+		if accepted != 3 {
+			t.Fatalf("atomic limiter admitted %d requests, want 3", accepted)
+		}
+	})
 	// A bounded local API sample, not proof of every frontend page or load SLA.
 	exec(ctx, a.DB, `INSERT INTO subscriptions(customer_id,plan_id,status,start_date,end_date,quote_valid_until,next_billing_date,anchor_day,currency,plan_snapshot,billing_anchor)
 		SELECT $1,$2,'Active',$3::date,$4::date,$3::date,$3::date+1,EXTRACT(DAY FROM $3::date)::integer,'INR',$5,$3::date FROM generate_series(1,1000)`, customerID, plan["id"], now, end, plan)
+	sampleCount := integer(one(ctx, a.DB, "SELECT count(*) AS count FROM subscriptions")["count"])
 	for _, path := range []string{"/api/subscriptions?page_size=100", "/api/invoices?page_size=100", "/api/reports"} {
 		started := time.Now()
 		request(admin, "GET", path, nil, 200)
 		elapsed := time.Since(started)
-		t.Logf("local API sample with 1,001 subscriptions: %s %s", path, elapsed)
+		t.Logf("local API sample with %d subscriptions: %s %s", sampleCount, path, elapsed)
 		if elapsed >= 2*time.Second {
 			t.Error(fmt.Sprintf("%s exceeded the PDF two-second target in this local sample: %s", path, elapsed))
 		}
