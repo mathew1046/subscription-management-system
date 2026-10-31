@@ -12,6 +12,7 @@ export type PaymentIntent = z.output<typeof savedIntent>;
 export type PaymentRecovery = {raw: string | null; intent: PaymentIntent | null};
 const durableRecord = z.object({
   version: z.literal(2), revision: z.string().uuid(), intent: savedIntent.nullable(), released: z.boolean(),
+  quarantined_intent: savedIntent.optional(),
 }).strict().refine(value => !value.released || (value.intent !== null && ['review', 'rejected', 'completed'].includes(value.intent.state)), 'An unresolved payment cannot be released');
 
 export const paymentStorageKey = (userId: string, invoiceId: string) => `brightloop:manual-payment:v1:${userId}:${invoiceId}`;
@@ -27,11 +28,16 @@ function parse(raw: string, userId: string, invoiceId: string): PaymentIntent {
 
 function parseRecord(raw: string, userId: string, invoiceId: string) {
   const record = durableRecord.parse(JSON.parse(raw));
-  return {...record, intent: record.intent === null ? null : parse(JSON.stringify(record.intent), userId, invoiceId)};
+  const intent = record.intent === null ? null : parse(JSON.stringify(record.intent), userId, invoiceId);
+  if (record.quarantined_intent) {
+    parse(JSON.stringify(record.quarantined_intent), userId, invoiceId);
+    throw new Error('Conflicting payment requests are quarantined in durable storage. Both original keys and payloads are preserved. An operator must reconcile both before payment entry can continue in any tab.');
+  }
+  return {...record, intent};
 }
 
-function serialize(intent: PaymentIntent | null, released = false): string {
-  return JSON.stringify({version: 2, revision: crypto.randomUUID(), intent, released});
+function serialize(intent: PaymentIntent | null, released = false, quarantinedIntent?: PaymentIntent): string {
+  return JSON.stringify({version: 2, revision: crypto.randomUUID(), intent, released, quarantined_intent: quarantinedIntent});
 }
 
 export function samePaymentIntent(left: PaymentIntent, right: PaymentIntent): boolean {
@@ -54,15 +60,18 @@ export function restorePaymentIntent(userId: string, invoiceId: string): Payment
   const raw = localStorage.getItem(key), legacy = sessionStorage.getItem(key);
   const record = raw === null ? null : parseRecord(raw, userId, invoiceId);
   const durable = record?.intent ?? null;
+  const persist = (serialized: string) => {
+    if (localStorage.getItem(key) !== raw || sessionStorage.getItem(key) !== legacy) throw new Error('Payment recovery changed during migration. Reload without deleting either original.');
+    localStorage.setItem(key, serialized);
+    if (localStorage.getItem(key) !== serialized) throw new Error('Durable payment recovery could not be verified. Legacy data has been preserved.');
+  };
   if (legacy === null) {
     // Establish a generation even for empty recovery. Released records retain
     // the last original intent plus a fresh revision: null → null must not let
     // a stale tab miss another tab's full submit/finish cycle (the ABA problem).
     if (record) return {raw, intent: record.released ? null : durable};
     const empty = serialize(null);
-    if (localStorage.getItem(key) !== raw) throw new Error('Payment recovery changed. Reload before continuing.');
-    localStorage.setItem(key, empty);
-    if (localStorage.getItem(key) !== empty) throw new Error('Durable payment storage is unavailable.');
+    persist(empty);
     return {raw: empty, intent: null};
   }
   const legacyIntent = parse(legacy, userId, invoiceId);
@@ -70,13 +79,17 @@ export function restorePaymentIntent(userId: string, invoiceId: string): Payment
   // broadly. Do not let that historical label authorize replacing a key.
   const previous: PaymentIntent = legacyIntent.state === 'rejected' ? {...legacyIntent, state: 'uncertain'} : legacyIntent;
   if (durable && !samePaymentIntent(durable, previous)) {
-    throw new Error('Different payment intents exist in durable and legacy tab storage. Both are preserved. An operator must reconcile both original keys before payment entry can continue.');
+    // Publish the conflict as well as blocking this tab. Otherwise peers could
+    // submit the other key or start a new payment without seeing this legacy one.
+    persist(serialize(durable, record?.released ?? false, previous));
+    throw new Error('Conflicting payment requests are quarantined in durable storage. Both original keys and payloads are preserved. An operator must reconcile both before payment entry can continue in any tab.');
   }
   // Do not resurrect a released request, but an old tab may have submitted it
   // after an unsubmitted/rejected release. Preserve both records if that outcome
   // is unknown; only a reconciled completion can settle an older uncertain copy.
   if (record?.released && (previous.state === 'conflict' || (previous.state !== 'review' && durable?.state !== 'completed'))) {
-    throw new Error('Legacy payment data needs reconciliation with the released request. Both originals are preserved; an operator must verify the original key before payment entry can continue.');
+    persist(serialize(previous));
+    throw new Error('Legacy payment data needs reconciliation with the released request. The original key, payload and unresolved state are now durable for all tabs; the legacy record is also preserved.');
   }
   // A legacy tab may have an older state for this same immutable request. Never
   // downgrade it to a never-submitted review or a definitely rejected payment.
@@ -84,9 +97,7 @@ export function restorePaymentIntent(userId: string, invoiceId: string): Payment
     ? {...durable, state: durable.state === 'conflict' || previous.state === 'conflict' ? 'conflict' : 'uncertain'}
     : durable ?? previous;
   const serialized = serialize(record?.released ? durable : next, record?.released ?? false);
-  if (localStorage.getItem(key) !== raw || sessionStorage.getItem(key) !== legacy) throw new Error('Payment recovery changed during migration. Reload without deleting either original.');
-  localStorage.setItem(key, serialized);
-  if (localStorage.getItem(key) !== serialized) throw new Error('Durable payment recovery could not be verified. Legacy data has been preserved.');
+  persist(serialized);
   sessionStorage.removeItem(key);
   if (sessionStorage.getItem(key) !== null) throw new Error('Legacy payment recovery could not be released safely. No payment request was sent.');
   const migrated = parseRecord(serialized, userId, invoiceId);
