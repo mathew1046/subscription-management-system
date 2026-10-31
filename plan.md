@@ -55,7 +55,7 @@ These implementation files unblock UI development. At the initial foundation han
 - Worker tasks have independent time budgets; billing failure cannot prevent outbox/cleanup work. SMTP follows cancellation, skips QUIT after DATA acceptance and reserves five seconds for outbox persistence within a 17-second task budget. UTC database sessions and configuration validation are enforced; health checks include database availability.
 - Local PostgreSQL and Mailpit services started; migrations 001–004 applied successfully. Go compilation, TypeScript checking and the frontend production build passed; the follow-up backend changes also compiled and the API/worker containers were rebuilt and started. No tests, browser/manual acceptance passes or performance measurements ran. These checks do not establish runtime billing correctness or the two-second target.
 - Review and follow-up audits fixed customer-owner replacement, billing-failure logging, logout throttling and graceful API shutdown. Subscription creation now applies the contracted 14-day payment-term default without overriding explicit zero, and subscription filters normalize UUID casing. Forward-only migration 004 repairs evidenced legacy resume anchors without changing deployed migration 003 or invoice snapshots.
-- Still requires Mathew's chosen admin credentials, operator SMTP details for actual delivery, teammate UI integration when available and explicit approval for acceptance/security/concurrency/performance verification. No public deployment or changes to teammates' owned files.
+- Core PR #1 is merged. Mathew authorized generated local demo credentials and Mailpit-only email for the current handoff; real SMTP and teammate UI integration are deferred, not blockers for local backend use. Acceptance/security/concurrency/performance verification still requires explicit approval. No public deployment or changes to teammates' owned files.
 
 ### 2. Teammates develop independently
 
@@ -66,8 +66,8 @@ If an API is insufficient, report the exact endpoint, requested shape and affect
 ### 3. Mathew integrates and completes operational work
 
 - Merge small UI slices; keep route ownership stable and remove any temporary layout examples before handoff.
-- Configure a local PostgreSQL instance, run migrations and bootstrap the first admin through the CLI. Do not hardcode public demo credentials.
-- Configure the operator-controlled SMTP server for real mail. Mailpit captures messages locally and does not deliver externally.
+- Local PostgreSQL, migrations and the generated demo administrator are configured. Credentials stay in the ignored, owner-readable `.env.demo.local`, not source control; never expose this local setup publicly.
+- Use Mailpit for the current handoff. It captures messages locally and does not deliver externally; real SMTP integration is deferred until requested.
 - Review unresolved business defaults below before handling real customer money. Add changes through explicit contracts/migrations, not silent behavior changes.
 - For deployment: HTTPS, private database network, restricted database runtime role, secrets management, backups/restore procedure, worker monitoring and reverse-proxy access limits are Mathew-owned follow-up work. Compose is a local development baseline, not a hardened production deployment.
 - Only when Mathew asks: manual acceptance, security/concurrency checks, automated tests, realistic data/performance checks and final release approval. Do not report these as completed from compile success.
@@ -138,6 +138,23 @@ npm run dev
 For a native Go service, export the variables from `.env.example` with real local values; Go does not automatically load `.env`. From `backend/`: `go run ./cmd/server migrate`, `go run ./cmd/server create-admin`, `go run ./cmd/server serve`, and in a separate terminal `go run ./cmd/server worker`. The frontend proxies `/api` to `BACKEND_URL`.
 
 Compose uses `COMPOSE_SMTP_HOST`/`COMPOSE_SMTP_PORT` (default `mailpit:1025`), while native Go uses `SMTP_HOST`/`SMTP_PORT` (default example `127.0.0.1:1025`). Both use `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` and `SMTP_FROM`. Mailpit is local capture only; use an operator-controlled TLS SMTP server for real delivery.
+
+### Current local demo handoff — 2026-10-31
+
+- Generated administrator, staff and customer credentials are in `.env.demo.local` (ignored by Git, mode 0600). Use the corresponding `DEMO_ADMIN_*`, `DEMO_STAFF_*` or `DEMO_CUSTOMER_*` values at `/login`. Never commit these credentials or expose this local deployment publicly.
+- Mail delivery is configured to the local `mailpit:1025` service with TLS disabled for that internal development connection. Inspect captured mail at `http://localhost:8025`; no Gmail or external delivery is configured.
+- Ran `node --env-file=.env.demo.local scripts/seed-demo.mjs` successfully. It uses authenticated API calls, not direct database writes or duplicated billing calculations. No new architecture pattern was needed. The local billing batch processed four periods with zero reported failures.
+- Created clearly marked DEMO records: two customers, two products, one variant, one illustrative tax, two plans, one product-scoped discount, one quotation template and seven subscriptions. Samples cover Draft, Quotation, Confirmed, Active and Paused, with four invoices (one Paid, one partially paid Confirmed, two Draft), two manual sample payments and two invoice email queue requests. No real money moved.
+- IDs, scenario labels and payment request keys are in the ignored, mode-0600 `.env.demo.data.json`. The seeder can reuse these local records without resetting edited lifecycle states; inspect errors before deliberate reruns. Its billing trigger processes all due subscriptions in this local database, so never point this setup at real business data. Do not delete the manifest just to reset a scenario.
+- Node syntax and whitespace checks passed. Creating the demo records exercised their normal API operations, but no separate automated tests, browser/manual acceptance pass, security/concurrency checks or performance measurements were run. No teammate-owned UI files changed; editing controls remain their separate deliverables, not a blocker for backend use.
+
+Manual walkthrough:
+
+1. Sign in as the generated admin at `http://localhost:3000/login`. Browse `/admin/products`, `/admin/plans`, `/admin/customers` and `/admin/subscriptions` for DEMO records; `/finance` shows the resulting persisted sample balances and invoice links.
+2. Open an invoice from `/portal/invoices`, inspect its lines/taxes/discount/balance, and use the existing Print invoice button. Sample totals are demo data, not actual revenue.
+3. In a private browser window, sign in as the generated customer. `/portal/subscriptions` and `/portal/invoices` should show only that customer's linked records, not the Research Studio customer's data. Direct access to finance/admin data should be denied.
+4. Inspect the captured invoice messages in Mailpit. For password reset, sign up a separate throwaway `.test` account, request a reset at `/forgot-password`, and follow its captured Mailpit link. Using a separate account keeps the saved demo credentials usable for reseeding.
+5. Admin editing, lifecycle actions, invoice confirmation and payment entry still use the existing `/api` endpoints until teammate UI controls are ready. GET requests are read-only; use the IDs in the manifest for deliberate mutations and retain each payment's original request key on retries.
 
 ## Authorized verification
 
